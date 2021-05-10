@@ -175,7 +175,7 @@ int64_t Alns::get_num_dups() { return upcxx::reduce_one(num_dups, upcxx::op_fast
 
 void Alns::dump_rank_file(string fname) const {
   get_rank_path(fname, rank_me());
-  zstr::ofstream f(fname);
+  zstr::bgzf_ofstream f(fname);
   dump_all(f, false);
   f.close();
   upcxx::barrier();

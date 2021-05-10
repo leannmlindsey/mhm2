@@ -654,7 +654,7 @@ class KmerCtgDHT {
     BarrierTimer timer(__FILEFUNC__, false);  // barrier on exit not entrance
     string dump_fname = "ctg_kmers-" + to_string(kmer_len) + ".txt.gz";
     get_rank_path(dump_fname, rank_me());
-    zstr::ofstream dump_file(dump_fname);
+    zstr::bgzf_ofstream dump_file(dump_fname);
     ostringstream out_buf;
     ProgressBar progbar(kmer_map->size(), "Dumping kmers to " + dump_fname);
     int64_t i = 0;

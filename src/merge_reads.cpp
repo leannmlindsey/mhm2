@@ -64,7 +64,6 @@ using namespace upcxx;
 #include "upcxx_utils.hpp"
 #include "upcxx_utils/ofstream.hpp"
 #include "utils.hpp"
-#include "zstr.hpp"
 
 using namespace upcxx_utils;
 

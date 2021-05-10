@@ -534,7 +534,7 @@ void KmerDHT<MAX_K>::dump_kmers(int k) {
   BarrierTimer timer(__FILEFUNC__);
   string dump_fname = "kmers-" + to_string(k) + ".txt.gz";
   get_rank_path(dump_fname, rank_me());
-  zstr::ofstream dump_file(dump_fname);
+  zstr::bgzf_ofstream dump_file(dump_fname);
   ostringstream out_buf;
   ProgressBar progbar(kmers->size(), "Dumping kmers to " + dump_fname);
   int64_t i = 0;

@@ -414,7 +414,7 @@ void get_spans_from_alns(int insert_avg, int insert_stddev, int kmer_len, Alns &
 #ifdef DUMP_LINKS
   string links_fname = "links-" + to_string(kmer_len) + ".spans.gz";
   get_rank_path(links_fname, rank_me());
-  zstr::ofstream links_file(links_fname);
+  zstr::bgzf_ofstream links_file(links_fname);
 #endif
   int64_t num_spans_only = 0;
   int64_t num_pos_spans = 0;
