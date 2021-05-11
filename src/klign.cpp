@@ -631,22 +631,21 @@ class KmerCtgDHT {
   }
 
   future<vector<KmerAndCtgLoc<MAX_K>>> get_ctgs_with_kmers(int target_rank, vector<Kmer<MAX_K>> &kmers) {
-    return rpc(
-        target_rank,
-        [](vector<Kmer<MAX_K>> kmers, kmer_map_t &kmer_map) {
-          vector<KmerAndCtgLoc<MAX_K>> kmer_ctg_locs;
-          kmer_ctg_locs.reserve(kmers.size());
-          for (auto &kmer : kmers) {
-            const auto it = kmer_map->find(kmer);
-            if (it == kmer_map->end()) continue;
-            // skip conflicts
-            if (it->second.first) continue;
-            // now add it
-            kmer_ctg_locs.push_back({kmer, it->second.second});
-          }
-          return kmer_ctg_locs;
-        },
-        kmers, kmer_map);
+    return rpc(target_rank,
+               [](vector<Kmer<MAX_K>> kmers, kmer_map_t &kmer_map) {
+                 vector<KmerAndCtgLoc<MAX_K>> kmer_ctg_locs;
+                 kmer_ctg_locs.reserve(kmers.size());
+                 for (auto &kmer : kmers) {
+                   const auto it = kmer_map->find(kmer);
+                   if (it == kmer_map->end()) continue;
+                   // skip conflicts
+                   if (it->second.first) continue;
+                   // now add it
+                   kmer_ctg_locs.push_back({kmer, it->second.second});
+                 }
+                 return kmer_ctg_locs;
+               },
+               kmers, kmer_map);
   }
 
 #ifdef DEBUG
