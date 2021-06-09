@@ -130,19 +130,18 @@ static pair<uint64_t, int> estimate_num_reads(vector<string> &reads_fname_list) 
     total_records_processed += records_processed;
     if (records_processed) {
       int64_t bytes_per_record = tot_bytes_read / records_processed;
-      int64_t num_records = fqr.my_file_size() / bytes_per_record;
+      int64_t num_records = (fqr.is_bgzf() ? 5 : 1) * fqr.my_file_size() / bytes_per_record;
       estimated_total_records += num_records;
       // since each input file is not necessarily run on the same rank
       // collect the local total estimates to a single rank within modulo_rank
       assert(read_file_idx > 0);
       assert(rank_me() >= (read_file_idx - 1) % modulo_rank);
-      auto fut_collect_rpc = rpc(
-          rank_me() - (read_file_idx - 1) % modulo_rank,
-          [](dist_object<int64_t> &dist_est, int64_t num_records, int file_i) {
-            *dist_est += num_records;
-            LOG("Found ", num_records, " in file ", file_i, ", total=", *dist_est, "\n");
-          },
-          dist_est, num_records, read_file_idx - 1);
+      auto fut_collect_rpc = rpc(rank_me() - (read_file_idx - 1) % modulo_rank,
+                                 [](dist_object<int64_t> &dist_est, int64_t num_records, int file_i) {
+                                   *dist_est += num_records;
+                                   LOG("Found ", num_records, " in file ", file_i, ", total=", *dist_est, "\n");
+                                 },
+                                 dist_est, num_records, read_file_idx - 1);
       rpc_fut = when_all(rpc_fut, fut_collect_rpc);
     }
     progress_fut = when_all(progress_fut, progbar.set_done());
@@ -232,6 +231,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
   int tot_max_read_len = 0;
   // for unique read id need to estimate number of reads in our sections of all files
   auto [my_num_reads_estimate, read_len] = estimate_num_reads(reads_fname_list);
+  DBG("Got ", my_num_reads_estimate, " reads and ", read_len, " read length from estimate\n");
   auto max_num_reads = upcxx::reduce_all(my_num_reads_estimate, upcxx::op_fast_max).wait();
   auto tot_num_reads = upcxx::reduce_all(my_num_reads_estimate, upcxx::op_fast_add).wait();
   SLOG_VERBOSE("Estimated total number of reads as ", tot_num_reads, ", and max for any rank ", max_num_reads, "\n");
@@ -486,7 +486,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
       // inc by 2 so that we can use a later optimization of treating the even as /1 and the odd as /2
       read_id += 2;
     }
-
+    DBG("Merged my set of reads. num_merged=", num_merged, " num_ambig=", num_ambiguous, " bytes_read=", bytes_read, "\n");
     fqr.advise(false);  // free kernel memory
 
     if (checkpoint) {
@@ -535,25 +535,23 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
   // check next rank
   assert(dist_ss->first <= dist_ss->second);
   if (rank_me() < rank_n() - 1) {
-    auto fut = rpc(
-        rank_me() + 1,
-        [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
-          if (!(ss.first < dist_ss->first && ss.second < dist_ss->first))
-            DIE("Invalid read ids from previous rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second,
-                " prev rank=", ss.first, "-", ss.second, "\n");
-        },
-        dist_ss, *dist_ss);
+    auto fut = rpc(rank_me() + 1,
+                   [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
+                     if (!(ss.first < dist_ss->first && ss.second < dist_ss->first))
+                       DIE("Invalid read ids from previous rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second,
+                           " prev rank=", ss.first, "-", ss.second, "\n");
+                   },
+                   dist_ss, *dist_ss);
     rpc_tests = when_all(rpc_tests, fut);
   }
   if (rank_me() > 0) {
-    auto fut = rpc(
-        rank_me() - 1,
-        [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
-          if (!(ss.first > dist_ss->second && ss.second > dist_ss->second))
-            DIE("Invalid read ids from next rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second, " next rank=", ss.first,
-                "-", ss.second, "\n");
-        },
-        dist_ss, *dist_ss);
+    auto fut = rpc(rank_me() - 1,
+                   [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
+                     if (!(ss.first > dist_ss->second && ss.second > dist_ss->second))
+                       DIE("Invalid read ids from next rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second,
+                           " next rank=", ss.first, "-", ss.second, "\n");
+                   },
+                   dist_ss, *dist_ss);
     rpc_tests = when_all(rpc_tests, fut);
   }
   rpc_tests.wait();

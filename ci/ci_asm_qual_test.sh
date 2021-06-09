@@ -19,6 +19,7 @@ if [ ! -f "$reads" ]; then
     wget https://portal.nersc.gov/project/hipmer/MetaHipMer_datasets_12_2019/ArcticSynth/samples/${reads}.gz
     gunzip ${reads}.gz &
 fi 
+reads=arctic_sample_0-bgzf.fq.gz
 
 wait
 
