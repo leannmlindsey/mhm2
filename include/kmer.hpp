@@ -94,8 +94,6 @@ class Kmer {
 
   static void get_kmers(unsigned kmer_len, const std::string_view &seq, std::vector<Kmer> &kmers, bool check_n = false);
 
-  static void get_kmers(unsigned kmer_len, const std::string_view &seq, std::vector<Kmer> &kmers);
-
   Kmer &operator=(const Kmer &o);
 
   bool operator<(const Kmer &o) const;
