@@ -255,7 +255,7 @@ FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_
   size_t pos;
   if ((pos = fname.find(':')) != string::npos) {
     if (pos == fname.size() - 1) {
-      // unpaird/single file
+      // unpaired/single file
       _is_paired = false;
       fname = fname.substr(0, pos);
     } else {
@@ -318,6 +318,11 @@ future<> FastqReader::set_matching_pair(FastqReader &fqr1, FastqReader &fqr2, di
   assert(fqr2.f && "FQ 2 is open");
   assert(fqr1.start_read == ftell(fqr1.f) && "fqr1 is at the naive start");
   assert(fqr2.start_read == ftell(fqr2.f) && "fqr2 is at the naive start");
+  // disable subsampling temporaritly
+  auto old_subsample = fqr1.subsample_pct;
+  assert(fqr2.subsample_pct == old_subsample);
+  fqr1.subsample_pct = 100;
+  fqr2.subsample_pct = 100;
   int64_t pos1 = fqr1.start_read, pos2 = fqr2.start_read;
   // allow search to extend past the original block size
   fqr1.end_read = fqr1.file_size;
@@ -394,7 +399,9 @@ future<> FastqReader::set_matching_pair(FastqReader &fqr1, FastqReader &fqr2, di
     fqr1.first_file = true;
   });
   auto fut2 = dist_start_stop2->set(fqr2).then([&fqr2]() { fqr2.seek(); });
-  return when_all(fut1, fut2).then([&fqr1, &fqr2]() {
+  return when_all(fut1, fut2).then([&fqr1, &fqr2, old_subsample]() {
+    fqr1.subsample_pct = old_subsample;
+    fqr2.subsample_pct = old_subsample;
     DBG("Found matching pair ", fqr1.start_read, " and ", fqr2.start_read, "\n");
   });
 }
@@ -516,13 +523,42 @@ size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, b
     WARN("Attempt to read ", fname, " before it is ready. wait on open_fut first to avoid this warning!\n");
     open_fut.wait();
   }
+  if (subsample_pct != 100) {
+    assert(subsample_pct > 0);
+
+    if (fqr2) assert(subsample_pct == fqr2->subsample_pct);
+    if (fqr2 && fqr2->read_count != read_count) {
+      // return the second mate normally
+    } else {
+      int modulo = (read_count / (_is_paired ? 2 : 1)) % 100;
+      if (modulo >= subsample_pct) {
+        // fast forward and discard
+        auto tmp_read_count = read_count;
+        int skip = (_is_paired ? 2 : 1) * (100 - modulo);
+        DBG_VERBOSE("Skipping ", skip, " reads for ", (_is_paired ? "PAIRED " : ""), "subsample ", subsample_pct,
+                    "% read_count=", read_count, "\n");
+        for (int i = 0; i < skip; i++) {
+          read_count = 0;
+          auto bytes_read = get_next_fq_record(id, seq, quals, wait_open);
+          if (bytes_read == 0) return bytes_read;
+        }
+        read_count = tmp_read_count + skip;
+        assert(read_count % (_is_paired ? 200 : 100) == 0);
+      }
+      // read normally
+      read_count++;
+    }
+  }
   if (fqr2) {
     // return a single interleaved file
     if (first_file) {
       first_file = false;
     } else {
       first_file = true;
-      return fqr2->get_next_fq_record(id, seq, quals, wait_open);
+      assert(read_count > fqr2->read_count);
+      auto bytes_read = fqr2->get_next_fq_record(id, seq, quals, wait_open);
+      assert(read_count == fqr2->read_count);
+      return bytes_read;
     }
   }
   if (feof(f) || ftell(f) >= end_read) return 0;
@@ -546,6 +582,7 @@ size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, b
   rtrim(id);
   rtrim(seq);
   rtrim(quals);
+  DBG("Read ", id, "\n");
   if (id[0] != '@') DIE("Invalid FASTQ in ", fname, ": expected read name (@), got: id=", id, " at ", ftell(f), "\n");
   if (id2 != '+') DIE("Invalid FASTQ in ", fname, ": expected '+', got: '", id2, "' id=", id, " at ", ftell(f), "\n");
   // construct universally formatted name (illumina 1 format)
@@ -575,6 +612,7 @@ void FastqReader::reset() {
   assert(f && "reset called on active file");
   if (fseek(f, start_read, SEEK_SET) != 0) DIE("Could not fseek on ", fname, " to ", start_read, ": ", strerror(errno));
   io_t.stop();
+  read_count = 0;
   if (fqr2) fqr2->reset();
   first_file = true;
 }
@@ -592,12 +630,14 @@ FastqReaders &FastqReaders::getInstance() {
   return _;
 }
 
-FastqReader &FastqReaders::open(const string fname) {
+FastqReader &FastqReaders::open(const string fname, int subsample_pct) {
   FastqReaders &me = getInstance();
   auto it = me.readers.find(fname);
   if (it == me.readers.end()) {
     upcxx::discharge();  // opening itself may take some time
-    it = me.readers.insert(it, {fname, make_shared<FastqReader>(fname, false)});
+    auto sh_fqr = make_shared<FastqReader>(fname, false);
+    if (subsample_pct < 100) sh_fqr->set_subsample_pct(subsample_pct);
+    it = me.readers.insert(it, {fname, sh_fqr});
     upcxx::discharge();  // opening requires a broadcast with to complete
     upcxx::progress();   // opening requires some user progress too
   }

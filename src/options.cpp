@@ -404,6 +404,8 @@ bool Options::load(int argc, char **argv) {
   app.add_option("--min-depth-thres", dmin_thres, "Absolute mininimum depth threshold for DeBruijn graph traversal")
       ->check(CLI::Range(1, 100));
   // performance trade-offs
+  app.add_option("--subsample-pct", subsample_fastq_pct, "Percentage of fastq files to read (default 100 (all)).")
+      ->check(CLI::Range(1, 100));
   app.add_option("--max-kmer-store", max_kmer_store_mb, "Maximum size for kmer store in MB per rank (set to 0 for auto 1% memory).")
       ->check(CLI::Range(0, 1000));
   app.add_option("--max-rpcs-in-flight", max_rpcs_in_flight,

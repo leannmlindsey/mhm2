@@ -67,7 +67,9 @@ class FastqReader {
   off_t file_size;
   int64_t start_read;
   int64_t end_read;
+  int64_t read_count = 0;
   unsigned max_read_len;
+  int subsample_pct = 100;
   char buf[BUF_SIZE + 1];
   int qual_offset;
   shared_ptr<FastqReader> fqr2;
@@ -99,6 +101,12 @@ class FastqReader {
   FastqReader() = delete;  // no default constructor
   FastqReader(const string &_fname, bool wait = false, upcxx::future<> first_wait = make_future());
 
+  void set_subsample_pct(int pct) {
+    assert(subsample_pct > 0 && subsample_pct <= 100);
+    subsample_pct = pct;
+    if (fqr2) fqr2->subsample_pct = pct;
+  }
+
   // this happens within a separate thread
   upcxx::future<> continue_open(int fd = -1);
 
@@ -122,7 +130,7 @@ class FastqReader {
   bool is_paired() const { return _is_paired; }
 
   static upcxx::future<> set_matching_pair(FastqReader &fqr1, FastqReader &fqr2, dist_object<PromStartStop> &dist_start_stop1,
-                                    dist_object<PromStartStop> &dist_start_stop2);
+                                           dist_object<PromStartStop> &dist_start_stop2);
 };
 
 class FastqReaders {
@@ -136,12 +144,13 @@ class FastqReaders {
  public:
   static FastqReaders &getInstance();
 
-  static FastqReader &open(const string fname);
+  static FastqReader &open(const string fname, int subsample_pct = 100);
 
   template <typename Container>
-  static void open_all(Container &fnames) {
+  static void open_all(Container &fnames, int subsample_pct = 100) {
+    assert(subsample_pct > 0 && subsample_pct <= 100);
     for (string &fname : fnames) {
-      open(fname);
+      open(fname, subsample_pct);
     }
   }
 

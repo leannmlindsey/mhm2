@@ -137,13 +137,12 @@ static pair<uint64_t, int> estimate_num_reads(vector<string> &reads_fname_list) 
       // collect the local total estimates to a single rank within modulo_rank
       assert(read_file_idx > 0);
       assert(rank_me() >= (read_file_idx - 1) % modulo_rank);
-      auto fut_collect_rpc = rpc(
-          rank_me() - (read_file_idx - 1) % modulo_rank,
-          [](dist_object<int64_t> &dist_est, int64_t num_records, int file_i) {
-            *dist_est += num_records;
-            LOG("Found ", num_records, " in file ", file_i, ", total=", *dist_est, "\n");
-          },
-          dist_est, num_records, read_file_idx - 1);
+      auto fut_collect_rpc = rpc(rank_me() - (read_file_idx - 1) % modulo_rank,
+                                 [](dist_object<int64_t> &dist_est, int64_t num_records, int file_i) {
+                                   *dist_est += num_records;
+                                   LOG("Found ", num_records, " in file ", file_i, ", total=", *dist_est, "\n");
+                                 },
+                                 dist_est, num_records, read_file_idx - 1);
       rpc_fut = when_all(rpc_fut, fut_collect_rpc);
     }
     progress_fut = when_all(progress_fut, progbar.set_done());
@@ -218,10 +217,11 @@ int16_t fast_count_mismatches(const char *a, const char *b, int len, int16_t max
 }
 
 void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elapsed_write_io_t,
-                 vector<PackedReads *> &packed_reads_list, bool checkpoint) {
+                 vector<PackedReads *> &packed_reads_list, bool checkpoint, int subsample_pct) {
   BarrierTimer timer(__FILEFUNC__);
   Timer merge_time(__FILEFUNC__ + " merging all");
-  FastqReaders::open_all(reads_fname_list);
+  assert(subsample_pct > 0 && subsample_pct <= 100);
+  FastqReaders::open_all(reads_fname_list, subsample_pct);
   vector<string> merged_reads_fname_list;
 
   using shared_of = shared_ptr<upcxx_utils::dist_ofstream>;
@@ -285,8 +285,9 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
     int64_t num_ambiguous = 0;
     int64_t num_merged = 0;
     int64_t num_reads = 0;
-
+    DBG("Starting merge\n");
     for (;; num_pairs++) {
+      DBG("Merging num_pair=", num_pairs, "\n");
       if (!fqr.is_paired()) {
         // unpaired reads get dummy read2 just like merged reads
         int64_t bytes_read1 = fqr.get_next_fq_record(id1, seq1, quals1);
@@ -536,25 +537,23 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
   // check next rank
   assert(dist_ss->first <= dist_ss->second);
   if (rank_me() < rank_n() - 1) {
-    auto fut = rpc(
-        rank_me() + 1,
-        [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
-          if (!(ss.first < dist_ss->first && ss.second < dist_ss->first))
-            DIE("Invalid read ids from previous rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second,
-                " prev rank=", ss.first, "-", ss.second, "\n");
-        },
-        dist_ss, *dist_ss);
+    auto fut = rpc(rank_me() + 1,
+                   [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
+                     if (!(ss.first < dist_ss->first && ss.second < dist_ss->first))
+                       DIE("Invalid read ids from previous rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second,
+                           " prev rank=", ss.first, "-", ss.second, "\n");
+                   },
+                   dist_ss, *dist_ss);
     rpc_tests = when_all(rpc_tests, fut);
   }
   if (rank_me() > 0) {
-    auto fut = rpc(
-        rank_me() - 1,
-        [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
-          if (!(ss.first > dist_ss->second && ss.second > dist_ss->second))
-            DIE("Invalid read ids from next rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second, " next rank=", ss.first,
-                "-", ss.second, "\n");
-        },
-        dist_ss, *dist_ss);
+    auto fut = rpc(rank_me() - 1,
+                   [](upcxx::dist_object<pair<uint64_t, uint64_t>> &dist_ss, SSPair ss) {
+                     if (!(ss.first > dist_ss->second && ss.second > dist_ss->second))
+                       DIE("Invalid read ids from next rank: ", rank_me(), "=", dist_ss->first, "-", dist_ss->second,
+                           " next rank=", ss.first, "-", ss.second, "\n");
+                   },
+                   dist_ss, *dist_ss);
     rpc_tests = when_all(rpc_tests, fut);
   }
   rpc_tests.wait();
