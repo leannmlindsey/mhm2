@@ -54,7 +54,6 @@
 #include "upcxx_utils/mem_profile.hpp"
 #include "upcxx_utils/progress_bar.hpp"
 #include "upcxx_utils/timers.hpp"
-#include "zstr.hpp"
 
 using std::string;
 using std::string_view;

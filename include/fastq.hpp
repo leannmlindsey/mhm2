@@ -46,6 +46,7 @@
 #include <upcxx/upcxx.hpp>
 
 #include "upcxx_utils/timers.hpp"
+#include "zstr.hpp"
 
 using std::shared_ptr;
 using std::string;
@@ -63,18 +64,19 @@ using upcxx_utils::IntermittentTimer;
 
 class FastqReader {
   string fname;
-  FILE *f;
-  off_t file_size;
-  int64_t start_read;
-  int64_t end_read;
-  int64_t read_count = 0;
+  std::unique_ptr<zstr::base_ifstream> in;
+  int64_t file_size;   // may be bgzf_virtual_file_pointer int
+  int64_t start_read;  // may be bgzf_virtual_file_pointer int
+  int64_t end_read;    // may be bgzf_virtual_file_pointer int
   unsigned max_read_len;
   int subsample_pct = 100;
-  char buf[BUF_SIZE + 1];
+  string buf;
   int qual_offset;
+  int read_count = 0;
   shared_ptr<FastqReader> fqr2;
   bool first_file;
   bool _is_paired;
+  bool _is_bgzf;
   IntermittentTimer io_t;
   struct PromStartStop {
     promise<int64_t> start_prom, stop_prom;
@@ -87,7 +89,8 @@ class FastqReader {
   };
   dist_object<PromStartStop> dist_prom;
   upcxx::future<> open_fut;
-  void seek();
+
+  void seekg(int64_t pos);
 
   inline static double overall_io_t = 0;
 
@@ -108,7 +111,7 @@ class FastqReader {
   }
 
   // this happens within a separate thread
-  upcxx::future<> continue_open(int fd = -1);
+  upcxx::future<> continue_open();
 
   ~FastqReader();
 
@@ -129,8 +132,12 @@ class FastqReader {
 
   bool is_paired() const { return _is_paired; }
 
+  bool is_bgzf() const { return _is_bgzf; }
+
   static upcxx::future<> set_matching_pair(FastqReader &fqr1, FastqReader &fqr2, dist_object<PromStartStop> &dist_start_stop1,
                                            dist_object<PromStartStop> &dist_start_stop2);
+  void seek_start();
+  int64_t tellg();
 };
 
 class FastqReaders {

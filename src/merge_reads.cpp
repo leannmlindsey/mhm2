@@ -64,7 +64,6 @@ using namespace upcxx;
 #include "upcxx_utils.hpp"
 #include "upcxx_utils/ofstream.hpp"
 #include "utils.hpp"
-#include "zstr.hpp"
 
 using namespace upcxx_utils;
 
@@ -131,7 +130,7 @@ static pair<uint64_t, int> estimate_num_reads(vector<string> &reads_fname_list) 
     total_records_processed += records_processed;
     if (records_processed) {
       int64_t bytes_per_record = tot_bytes_read / records_processed;
-      int64_t num_records = fqr.my_file_size() / bytes_per_record;
+      int64_t num_records = (fqr.is_bgzf() ? 5 : 1) * fqr.my_file_size() / bytes_per_record;
       estimated_total_records += num_records;
       // since each input file is not necessarily run on the same rank
       // collect the local total estimates to a single rank within modulo_rank
@@ -233,6 +232,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
   int tot_max_read_len = 0;
   // for unique read id need to estimate number of reads in our sections of all files
   auto [my_num_reads_estimate, read_len] = estimate_num_reads(reads_fname_list);
+  DBG("Got ", my_num_reads_estimate, " reads and ", read_len, " read length from estimate\n");
   auto max_num_reads = upcxx::reduce_all(my_num_reads_estimate, upcxx::op_fast_max).wait();
   auto tot_num_reads = upcxx::reduce_all(my_num_reads_estimate, upcxx::op_fast_add).wait();
   SLOG_VERBOSE("Estimated total number of reads as ", tot_num_reads, ", and max for any rank ", max_num_reads, "\n");
@@ -488,7 +488,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
       // inc by 2 so that we can use a later optimization of treating the even as /1 and the odd as /2
       read_id += 2;
     }
-
+    DBG("Merged my set of reads. num_merged=", num_merged, " num_ambig=", num_ambiguous, " bytes_read=", bytes_read, "\n");
     fqr.advise(false);  // free kernel memory
 
     if (checkpoint) {
