@@ -64,7 +64,9 @@ using upcxx_utils::IntermittentTimer;
 
 class FastqReader {
   string fname;
-  std::unique_ptr<zstr::base_ifstream> in;
+  // FIXME BGZF std::unique_ptr<zstr::base_ifstream> in;
+  std::unique_ptr<ifstream> in;
+  promise<> know_file_size;
   int64_t file_size;   // may be bgzf_virtual_file_pointer int
   int64_t start_read;  // may be bgzf_virtual_file_pointer int
   int64_t end_read;    // may be bgzf_virtual_file_pointer int
@@ -119,6 +121,8 @@ class FastqReader {
 
   size_t my_file_size();
 
+  upcxx::future<int64_t> get_file_size() const;
+
   void advise(bool will_need);
 
   size_t get_next_fq_record(string &id, string &seq, string &quals, bool wait_open = true);
@@ -155,10 +159,35 @@ class FastqReaders {
 
   template <typename Container>
   static void open_all(Container &fnames, int subsample_pct = 100) {
+    // every rank opens a partition of every file
     assert(subsample_pct > 0 && subsample_pct <= 100);
     for (string &fname : fnames) {
       open(fname, subsample_pct);
     }
+  }
+
+  template <typename Container>
+  static void open_all_by_block(Container &fnames, int subsample_pct = 100) {
+    // opens only some files and reads a partition, as if the entire set of files is one single concatented file
+    std::vector<promise<>> know_blocks(fnames.size());
+    std::vector<int64_t> file_sizes(fnames.size());
+    int64_t total_size = 0;
+    assert(subsample_pct > 0 && subsample_pct <= 100);
+    int filenum = 0;
+    upcxx::future<> chain_fut = make_future();
+    for (string &fname : fnames) {
+      /*
+      auto &fqr = open(fname, true, know_blocks[filenum].get_future());
+      future<> fut = fqr.get_file_size().then([&total_size, &file_size = file_sizes[filenum]](int64_t sz) {
+        file_size = sz;
+        total_size += sz;
+      });
+      chain_fut = when_all(chain_fut, fut);
+      */
+    }
+    chain_fut = chain_fut.then([&file_sizes, &total_size, &know_blocks]() {
+
+    });
   }
 
   static FastqReader &get(const string fname);

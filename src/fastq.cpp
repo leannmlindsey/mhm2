@@ -126,16 +126,23 @@ bool FastqReader::get_fq_name(string &header) {
 }
 
 int64_t FastqReader::tellg() {
+  return in->tellg();
+  /* FIXME BGZF
   zstr::bgzf_ifstream *bgzf_in = _is_bgzf ? dynamic_cast<zstr::bgzf_ifstream *>(in.get()) : nullptr;
   return bgzf_in ? zstr::bgzf_virtual_file_pointer::to_int_id(bgzf_in->get_bgzf_virtual_file_pointer()) : in->tellg();
+  */
 }
 
 void FastqReader::seekg(int64_t pos) {
+  in->seekg(pos);
+  /* FIXME BGZF
   zstr::bgzf_ifstream *bgzf_in = _is_bgzf ? dynamic_cast<zstr::bgzf_ifstream *>(in.get()) : nullptr;
   if (bgzf_in)
     bgzf_in->seek_to_bgzf_pointer(zstr::bgzf_virtual_file_pointer::from_int_id(pos));
   else
     in->seekg(pos);
+    */
+  assert(tellg() == pos);
 }
 
 int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
@@ -144,52 +151,70 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
   // eof - do not read anything
   if (offset >= file_size) return file_size;
 
+  io_t.start();
+
+  in->seekg(offset);
+  /* FIXME BGZF
   zstr::bgzf_ifstream *bgzf_in = _is_bgzf ? dynamic_cast<zstr::bgzf_ifstream *>(in.get()) : nullptr;
 
-  io_t.start();
   if (bgzf_in) {
     auto vfp = zstr::bgzf_virtual_file_pointer::from_int_id(offset);
     bgzf_in->seek_to_bgzf_pointer(vfp);
   } else {
     in->seekg(offset);
   }
+  */
+
   if (!in->good()) DIE("Could not fseek in ", fname, " to ", offset, ": ", strerror(errno));
   // skip first (likely partial) line after this offset to ensure we start at the beginning of a line
   std::getline(*in, buf);
-  if (buf.empty()) {
+  if (in->eof() || in->fail() || buf.empty()) {
     io_t.stop();
-    return tellg();
+    DBG("Got eof, fail or empty getline at ", tellg(), " eof=", in->eof(), " fail=", in->fail(), " buf=", buf.size(), "\n");
+    return file_size;
+  }
+  int64_t last_tell = tellg();
+
+  // read up to 20 lines and store tellg() at each line, then process them below...
+  std::vector<string> lines;
+  lines.reserve(20);
+  std::vector<int64_t> tells;
+  tells.reserve(20);
+  for (int i = 0; i < 20; i++) {
+    tells.push_back(tellg());
+    std::getline(*in, buf);
+    if (in->eof() || in->fail() || buf.empty()) {
+      DBG("Got eof, fail or empty getline at ", tellg(), " eof=", in->eof(), " fail=", in->fail(), " buf=", buf.size(), "\n");
+      break;
+    }
+    lines.push_back(buf);
   }
 
   char last_pair = '\0', this_pair = '\1';
-  int64_t last_tell = tellg();
-  for (int i = 0;; i++) {
-    int64_t this_tell = tellg();
-    std::getline(*in, buf);
-    if (buf.empty()) {
-      io_t.stop();
-      return tellg();
-    }
-
-    if (buf[0] == '@') {
-      string header(buf);
+  int i;
+  for (i = 0; i < lines.size(); i++) {
+    int64_t this_tell = tells[i];
+    string &tmp = lines[i];
+    if (tmp[0] == '@') {
+      string header(tmp);
       rtrim(header);
       if (!get_fq_name(header)) continue;
 
       // now read another three lines, but check that next line is sequence and the third line is a + separator and the fourth line
       // is the same length as the second
-      int64_t test_tell = tellg();
+      int64_t test_tell = tells[i];
       int seqlen = 0;
       bool record_found = true;
       DBG_VERBOSE("Testing for header: ", header, "\n");
       for (int j = 0; j < 3; j++) {
-        std::getline(*in, buf);
-        if (buf.empty()) DIE("Missing record info at pos ", tellg());
+        if (i + 1 + j >= lines.size()) DIE("Missing record info at pos ", tells[i]);
+        string &tmp2 = lines[i + 1 + j];
+
         if (j == 0) {
           // sequence line should have only sequence characters
-          seqlen = buf.size();
+          seqlen = tmp2.size();
           for (int k = 0; k < seqlen; k++) {
-            switch (buf[k]) {
+            switch (tmp2[k]) {
               case ('a'):
               case ('c'):
               case ('g'):
@@ -205,22 +230,22 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
                 break;
               case ('@'):  // previous was quality line, this next line is the header line.
               default:     // not okay
-                DBG_VERBOSE("Found non-seq '", buf[k], "' at ", k, " in: ", buf, "\n");
+                DBG_VERBOSE("Found non-seq '", tmp2[k], "' at ", k, " in: ", tmp2, "\n");
                 record_found = false;
             }
             if (!record_found) break;
           }
           if (!record_found) break;
         }
-        if (j == 1 && buf[0] != '+') {
+        if (j == 1 && tmp2[0] != '+') {
           // this is not a correct boundary for a fastq record - move on
-          DBG_VERBOSE("Found non + ", buf, "\n");
+          DBG_VERBOSE("Found non + ", tmp2, "\n");
           record_found = false;
           break;
         }
-        if (j == 2 && seqlen != buf.size()) {
+        if (j == 2 && seqlen != tmp2.size()) {
           // qual should be same length as sequence
-          DBG_VERBOSE("Found different len ", seqlen, " vs ", buf.size(), " in ", buf, "\n");
+          DBG_VERBOSE("Found different len ", seqlen, " vs ", tmp2.size(), " in ", tmp2, "\n");
           record_found = false;
           break;
         }
@@ -229,11 +254,7 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
         // good
         i += 3;
       } else {
-        // rewind and test next line as a potential header
-        DBG_VERBOSE("Did not find proper pair, rewinding\n");
-        seekg(test_tell);
-        if (!in->good()) DIE("Could not fseek in ", fname, " to ", offset, ": ", strerror(errno));
-        // strerror(errno));
+        // test next line as a potential header
         continue;
       }
 
@@ -260,7 +281,7 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
       last_tell = this_tell;
       last_pair = this_pair;
     }
-    if (i > 20) DIE("Could not find a valid line in the fastq file ", fname, ", last line: ", buf);
+    if (i >= lines.size()) DIE("Could not find a valid line in the fastq file ", fname, ", last line: ", buf);
   }
   io_t.stop();
   DBG("Found record at ", last_tell, " after offset ", offset, "\n");
@@ -296,20 +317,23 @@ FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_
   if (!rank_me()) {
     // only one rank gets the file size, to prevent many hits on metadata
     io_t.start();
-    file_size = get_file_size(fname);
+    file_size = upcxx_utils::get_file_size(fname);
     if (fname.find(".gz") != std::string::npos) {
+      DIE("FIXME BGZF!");
       // File is gzip. If it is BGZF compatible we can use it, otherwise throw an error
       SLOG_VERBOSE("Checking for BGZF header in ", fname, "\n");
+      /* FIXME BGZF
       in.reset((zstr::base_ifstream *)new zstr::bgzf_ifstream(fname));
       if (!zstr::is_bgzf(in.get())) {
         DIE("The input file '", fname, "' is compressed but is NOT in a BGZF-compatible gzip format!");
       }
       _is_bgzf = true;
+      */
     } else {
-      in = std::make_unique<zstr::ifstream>(fname);
+      in = std::make_unique<ifstream>(fname);  // FIXME BGZF std::make_unique<zstr::ifstream>(fname);
     }
     if (_is_bgzf) {
-      file_size = -zstr::bgzf_virtual_file_pointer(file_size, 0).to_int_id();  // negative as signal for other ranks
+      // FIXME BGZF file_size = -zstr::bgzf_virtual_file_pointer(file_size, 0).to_int_id();  // negative as signal for other ranks
     }
     io_t.stop();
     buf.reserve(BUF_SIZE);
@@ -324,6 +348,7 @@ FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_
       assert(!self._is_bgzf);
     }
   });
+  file_size_fut = file_size_fut.then([&self = *this]() { self.know_file_size.fulfill_anonymous(1); });
 
   // continue opening IO operations to find this rank's start record in a separate thread
   open_fut = when_all(open_fut, file_size_fut, first_wait).then([&self = *this]() { return self.continue_open(); });
@@ -462,10 +487,13 @@ upcxx::future<> FastqReader::continue_open() {
   assert(upcxx::master_persona().active_with_caller());
   io_t.start();
   if (!in) {
+    /* FIXME BGZF
     if (_is_bgzf)
       in.reset((zstr::base_ifstream *)new zstr::bgzf_ifstream(fname));
     else
       in.reset((zstr::base_ifstream *)new zstr::ifstream(fname));  // works fine for uncompressed files too
+    */
+    in.reset(new ifstream(fname));
   }
   if (!in) {
     SDIE("Could not open file ", fname, ": ", strerror(errno));
@@ -490,7 +518,7 @@ upcxx::future<> FastqReader::continue_open() {
     // do all the fseeking for the local team
     using DPSS = dist_object<PromStartStop>;
     int64_t file_bytes = file_size;
-    if (_is_bgzf) file_bytes = zstr::bgzf_virtual_file_pointer::from_int_id(file_size).get_file_offset();
+    // FIXME BGZF if (_is_bgzf) file_bytes = zstr::bgzf_virtual_file_pointer::from_int_id(file_size).get_file_offset();
     int64_t read_block = INT_CEIL(file_bytes, rank_n());
     auto first_rank = rank_me() + 1 - local_team().rank_n();
     for (auto rank = first_rank; rank < first_rank + local_team().rank_n(); rank++) {
@@ -501,10 +529,12 @@ upcxx::future<> FastqReader::continue_open() {
       }
       assert(rank > 0);
       start_read = read_block * rank;
+      /* FIXME BGZF
       if (_is_bgzf) {
         zstr::bgzf_ifstream *bgzf_ifs = dynamic_cast<zstr::bgzf_ifstream *>(in.get());
         start_read = bgzf_ifs->find_next_bgzf_block(start_read).to_int_id();
       }
+      */
       auto pos = get_fptr_for_next_record(start_read);
       DBG_VERBOSE("Notifying with rank=", rank, " pos=", pos, " after start_read=", start_read, "\n");
       wait_prom.get_future().then([rank, pos, &dist_prom = this->dist_prom]() {
@@ -551,7 +581,8 @@ void FastqReader::advise(bool will_need) {
 
 void FastqReader::seek_start() {
   // seek to first record
-  DBG("Seeking to start_read=", start_read, " reading through end_read=", end_read, "\n");
+  DBG("Seeking to start_read=", start_read, " reading through end_read=", end_read, " my_file_size=", my_file_size(),
+      " fname=", fname, "\n");
   io_t.start();
   seekg(start_read);
   if (!in->good()) DIE("Could not fseek on ", fname, " to ", start_read, ": ", strerror(errno));
@@ -582,17 +613,24 @@ FastqReader::~FastqReader() {
 string FastqReader::get_fname() { return fname; }
 
 size_t FastqReader::my_file_size() {
-  size_t size;
+  size_t size = 0;
   if (_is_bgzf) {
+    /* FIXME BGZF
     // start_read & end_read are not exact counts.  Use the compressed sizes
     size = zstr::bgzf_virtual_file_pointer::from_int_id(end_read).get_file_offset() -
            zstr::bgzf_virtual_file_pointer::from_int_id(start_read).get_file_offset();
+    */
+    DIE("!");
   } else {
     size = end_read - start_read;
   }
   if (fqr2) size += fqr2->my_file_size();
   DBG("my_file_size=", size, "\n");
   return size;
+}
+
+future<int64_t> FastqReader::get_file_size() const {
+  return know_file_size.get_future().then([this]() { return this->file_size; });
 }
 
 size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, bool wait_open) {
@@ -693,7 +731,7 @@ void FastqReader::reset() {
   read_count = 0;
   if (fqr2) fqr2->reset();
   first_file = true;
-  DBG("reset\n");
+  DBG("reset on ", fname, " tellg=", in->tellg(), "\n");
 }
 
 //
