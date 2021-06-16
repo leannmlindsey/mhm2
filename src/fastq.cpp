@@ -168,7 +168,7 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
   if (!in->good()) DIE("Could not fseek in ", fname, " to ", offset, ": ", strerror(errno));
   // skip first (likely partial) line after this offset to ensure we start at the beginning of a line
   std::getline(*in, buf);
-  if (in->eof() || in->fail() || buf.empty()) {
+  if (buf.empty() && (in->eof() || in->fail())) {
     io_t.stop();
     DBG("Got eof, fail or empty getline at ", tellg(), " eof=", in->eof(), " fail=", in->fail(), " buf=", buf.size(), "\n");
     return file_size;
@@ -187,6 +187,7 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
       DBG("Got eof, fail or empty getline at ", tellg(), " eof=", in->eof(), " fail=", in->fail(), " buf=", buf.size(), "\n");
       break;
     }
+    assert(buf.back() != '\n');
     lines.push_back(buf);
   }
 
@@ -211,6 +212,11 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
         string &tmp2 = lines[i + 1 + j];
 
         if (j == 0) {
+          if (tmp2[0] == '@') {
+            // previous was quality line, this next line is the header line.
+            record_found = false;
+            break;
+          }
           // sequence line should have only sequence characters
           seqlen = tmp2.size();
           for (int k = 0; k < seqlen; k++) {
@@ -224,12 +230,9 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
               case ('G'):
               case ('T'):
               case ('N'): break;  // okay
-              case ('\n'):
-                // newline.  okay if last char
-                record_found = k == seqlen - 1;
-                break;
-              case ('@'):  // previous was quality line, this next line is the header line.
-              default:     // not okay
+              case ('\n'):        // newline is not expected here
+              case ('@'):         // previous was quality line, this next line is the header line.
+              default:            // not okay
                 DBG_VERBOSE("Found non-seq '", tmp2[k], "' at ", k, " in: ", tmp2, "\n");
                 record_found = false;
             }
@@ -589,8 +592,8 @@ void FastqReader::seek_start() {
   SLOG_VERBOSE("Reading FASTQ file ", fname, "\n");
   double fseek_t = io_t.get_elapsed_since_start();
   io_t.stop();
-  LOG("Reading fastq file ", fname, " at pos ", start_read, " ", tellg(), " seek ", fseek_t, "s io to open+find+seek ",
-      io_t.get_elapsed(), "s\n");
+  LOG("Reading fastq file ", fname, " at pos ", start_read, "==", tellg(), " to ", end_read, " seek ", fseek_t,
+      "s io to open+find+seek ", io_t.get_elapsed(), "s\n");
 }
 
 FastqReader::~FastqReader() {
