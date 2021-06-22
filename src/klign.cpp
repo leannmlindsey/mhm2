@@ -478,7 +478,7 @@ class KmerCtgDHT {
   // aligner construction: SSW internal defaults are 2 2 3 1
 
   KmerCtgDHT(int kmer_len, int max_store_size, int max_rpcs_in_flight, Alns &alns, AlnScoring &aln_scoring, int rlen_limit,
-             bool compute_cigar, int all_num_ctgs, bool use_kmer_cache, int ranks_per_gpu)
+             bool compute_cigar, size_t all_num_ctgs, bool use_kmer_cache, int ranks_per_gpu)
       : kmer_map({})
       , kmer_store()
       , global_ctg_seqs({})
@@ -541,12 +541,12 @@ class KmerCtgDHT {
     gpu_mem_avail = 32 * 1024 * 1024;  // cpu needs a block of memory
 #endif
     ctg_cache.set_invalid_key(std::numeric_limits<cid_t>::max());
-    ctg_cache.reserve(2 * all_num_ctgs / rank_n());
+    ctg_cache.reserve(2 * all_num_ctgs / rank_n() + 1024);
 
 #ifdef USE_KMER_CACHE
     if (use_kmer_cache) {
       kmer_cache.set_invalid_key(Kmer<MAX_K>::get_invalid());
-      kmer_cache.reserve_max_memory(8 * ONE_MB + max_store_size * 2);
+      kmer_cache.reserve_max_memory(8 * ONE_MB + max_store_size * 2 + 1024);
     }
 #endif
   }
@@ -1298,7 +1298,7 @@ double find_alignments(unsigned kmer_len, vector<PackedReads *> &packed_reads_li
     AlnScoring alt_aln_scoring = {.match = 2, .mismatch = 4, .gap_opening = 4, .gap_extending = 2, .ambiguity = 1};
     aln_scoring = alt_aln_scoring;
   }
-  auto all_num_ctgs = reduce_all(ctgs.size(), op_fast_add).wait();
+  size_t all_num_ctgs = reduce_all(ctgs.size(), op_fast_add).wait();
   SLOG_VERBOSE("Alignment scoring parameters: ", aln_scoring.to_string(), "\n");
   KmerCtgDHT<MAX_K> kmer_ctg_dht(kmer_len, max_store_size, max_rpcs_in_flight, alns, aln_scoring, rlen_limit, compute_cigar,
                                  all_num_ctgs, use_kmer_cache, ranks_per_gpu);
