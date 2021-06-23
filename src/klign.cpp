@@ -198,10 +198,12 @@ class KmerCtgDHT {
   int64_t ctg_bytes_fetched = 0;
   using ctg_cache_t = FixedSizeCache<cid_t, string>;
   ctg_cache_t ctg_cache;
-  std::unordered_set<cid_t> local_ctgs;
+  std::unordered_set<cid_t> fetched_ctgs = {};
   int64_t ctg_cache_hits = 0;
   int64_t ctg_lookups = 0;
   int64_t ctg_local_hits = 0;
+  int64_t ctg_refetches = 0;
+  int64_t ctg_extended_fetches = 0;
 
   int get_cigar_length(const string &cigar) {
     // check that cigar string length is the same as the sequence, but only if the sequence is included
@@ -541,7 +543,7 @@ class KmerCtgDHT {
     gpu_mem_avail = 32 * 1024 * 1024;  // cpu needs a block of memory
 #endif
     ctg_cache.set_invalid_key(std::numeric_limits<cid_t>::max());
-    ctg_cache.reserve(2 * all_num_ctgs / rank_n() + 1024);
+    ctg_cache.reserve(4 * all_num_ctgs / rank_n() + 2048);
 
 #ifdef USE_KMER_CACHE
     if (use_kmer_cache) {
@@ -809,12 +811,7 @@ class KmerCtgDHT {
         // on same node already
         ctg_seq = string_view(ctg_loc.seq_gptr.local(), ctg_loc.clen);
         ctg_local_hits++;
-        auto it = local_ctgs.find(ctg_loc.cid);
-        if (it == local_ctgs.end()) {
-          local_ctgs.insert(ctg_loc.cid);
-        } else {
-          found = true;
-        }
+        found = true;
       } else {
         ctg_lookups++;
         auto it = ctg_cache.find(ctg_loc.cid);
@@ -834,6 +831,7 @@ class KmerCtgDHT {
             get_len--;
           }
           if (!found) {
+            ctg_extended_fetches++;
             while (get_len > 0) {
               if (ctg_seq[get_start + get_len - 1] == ' ') {
                 break;
@@ -856,6 +854,11 @@ class KmerCtgDHT {
             tmp_ctg = string(ctg_loc.clen, ' ');
             ctg_seq = string_view(tmp_ctg.data(), tmp_ctg.size());
           }
+          if (fetched_ctgs.find(ctg_loc.cid) == fetched_ctgs.end()) {
+            fetched_ctgs.insert(ctg_loc.cid);
+          } else {
+            ctg_refetches++;
+          }
         }
         if (!found) {
           if (ctg_seq.size() < cstart + overlap_len || ctg_seq.size() != ctg_loc.clen)
@@ -864,7 +867,7 @@ class KmerCtgDHT {
           assert(ctg_seq.size() >= cstart + overlap_len);
           assert(ctg_seq.size() == ctg_loc.clen);
           // also get extra bordering blank bases on either side of the contig for negligable extra overhead and likely fewer rgets
-          const int extra_bases = 128;
+          const int extra_bases = 384;
           for (int i = 0; i < extra_bases; i++) {
             if (get_start == 0) break;
             if (ctg_seq[get_start - 1] == ' ') {
@@ -879,6 +882,16 @@ class KmerCtgDHT {
               get_len++;
             } else
               break;
+          }
+
+          // finally extend this fetch to the end of the contig if a small percentage of the contig remains unfetched
+          int edge_bases = ctg_seq.size() * 0.1;
+          if (get_start < edge_bases) {
+              get_len += get_start;
+              get_start = 0;
+          }
+          if (ctg_seq.size() - get_start - get_len < edge_bases) {
+              get_len = ctg_seq.size() - get_start;
           }
 
           assert(get_start >= 0);
@@ -980,18 +993,29 @@ class KmerCtgDHT {
   void print_cache_stats() {
 #ifdef USE_KMER_CACHE
     if (use_kmer_cache) {
-      auto all_kmer_cache_hits = reduce_one(kmer_cache_hits, op_fast_add, 0).wait();
-      auto all_lookups = reduce_one(kmer_lookups, op_fast_add, 0).wait();
-      SLOG_VERBOSE("Hits on kmer cache: ", perc_str(all_kmer_cache_hits, all_lookups), " cache size ", kmer_cache.size(), " of ",
-                   kmer_cache.capacity(), " clobberings ", kmer_cache.get_clobberings(), "\n");
+      auto msm_kmer_cache_hits = min_sum_max_reduce_one(kmer_cache_hits, 0).wait();
+      auto msm_lookups = min_sum_max_reduce_one(kmer_lookups, 0).wait();
+      SLOG_VERBOSE("Hits on kmer cache: ", perc_str(msm_kmer_cache_hits.sum, msm_lookups.sum), " cache size ", kmer_cache.size(),
+                   " of ", kmer_cache.capacity(), " clobberings ", kmer_cache.get_clobberings(), "\n");
+      SLOG("kmer_cache_hits: ", msm_kmer_cache_hits.to_string(), "\n");
+      SLOG("kmer_lookups: ", msm_lookups.to_string(), "\n");
     }
 #endif
-    auto all_ctg_local_hits = reduce_one(ctg_local_hits, op_fast_add, 0).wait();
-    auto all_ctg_cache_hits = reduce_one(ctg_cache_hits, op_fast_add, 0).wait();
-    auto all_ctg_lookups = reduce_one(ctg_lookups + ctg_local_hits, op_fast_add, 0).wait();
-    SLOG_VERBOSE("Hits on ctg cache: ", perc_str(all_ctg_cache_hits, all_ctg_lookups), " cache size ", ctg_cache.size(), " of ",
-                 ctg_cache.capacity(), " clobberings ", ctg_cache.get_clobberings(), "\n");
-    SLOG_VERBOSE("Local contig hits bypassing cache: ", perc_str(all_ctg_local_hits, all_ctg_lookups), "\n");
+    auto msm_ctg_local_hits = min_sum_max_reduce_one(ctg_local_hits, 0).wait();
+    auto msm_ctg_cache_hits = min_sum_max_reduce_one(ctg_cache_hits, 0).wait();
+    auto msm_ctg_lookups = min_sum_max_reduce_one(ctg_lookups + ctg_local_hits, 0).wait();
+    auto msm_ctg_refetches = min_sum_max_reduce_one(ctg_refetches, 0).wait();
+    auto msm_ctg_extended_fetches = min_sum_max_reduce_one(ctg_extended_fetches, 0).wait();
+    auto msm_ctg_clobberings = min_sum_max_reduce_one(ctg_cache.get_clobberings(), 0).wait();
+    SLOG_VERBOSE("Hits on ctg cache: ", perc_str(msm_ctg_cache_hits.sum, msm_ctg_lookups.sum), " (my) cache size ",
+                 ctg_cache.size(), " of ", ctg_cache.capacity(), " clobberings ", ctg_cache.get_clobberings(), "\n");
+    SLOG_VERBOSE("Local contig hits bypassing cache: ", perc_str(msm_ctg_local_hits.sum, msm_ctg_lookups.sum), "\n");
+    SLOG("ctg_local_hits: ", msm_ctg_local_hits.to_string(), "\n");
+    SLOG("ctg_cache_hits: ", msm_ctg_cache_hits.to_string(), "\n");
+    SLOG("ctg_lookups: ", msm_ctg_lookups.to_string(), "\n");
+    SLOG("ctg_refetches: ", msm_ctg_refetches.to_string(), "\n");
+    SLOG("ctg_extended_fetches: ", msm_ctg_extended_fetches.to_string(), "\n");
+    SLOG("ctg_cache_clobberings: ", msm_ctg_clobberings.to_string(), "\n");
   }
 };
 
