@@ -291,7 +291,7 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
   return last_tell;
 }
 
-FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_wait)
+FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
     : fname(_fname)
     , in(nullptr)
     , max_read_len(0)
@@ -304,6 +304,7 @@ FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_
     , open_fut(make_future()) {
   Timer construction_timer("FastqReader construct " + get_basename(fname));
   construction_timer.initiate_entrance_reduction();
+  bool need_wait = first_wait.ready();
   string fname2;
   size_t pos;
   if ((pos = fname.find(':')) != string::npos) {
@@ -340,6 +341,7 @@ FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_
     }
     io_t.stop();
     buf.reserve(BUF_SIZE);
+    DBG("Found file_size=", file_size, " for ", fname, "\n");
   }
 
   future<> file_size_fut = upcxx::broadcast(file_size, 0).then([&self = *this](int64_t sz) {
@@ -359,7 +361,7 @@ FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_
   if (!fname2.empty()) {
     // this second reader is generally hidden from the user
     LOG("Opening second FastqReader with ", fname2, "\n");
-    fqr2 = make_shared<FastqReader>(fname2, wait, open_fut);
+    fqr2 = make_shared<FastqReader>(fname2, open_fut);
     open_fut = when_all(open_fut, fqr2->open_fut);
 
     // find the positions in the file that correspond to matching pairs
@@ -382,7 +384,9 @@ FastqReader::FastqReader(const string &_fname, bool wait, upcxx::future<> first_
     upcxx_utils::Timings::set_pending(free_mem);                                     // eventualy will clean up
   }
 
-  if (wait) {
+  DBG("Constructed new FQR on ", fname, " - ", (void *)this, "\n");
+
+  if (need_wait) {
     open_fut.wait();
     if (fqr2) fqr2->open_fut.wait();
   }
@@ -485,9 +489,73 @@ future<> FastqReader::set_matching_pair(FastqReader &fqr1, FastqReader &fqr2, di
   });
 }
 
-// all ranks open, 1 rank per node finds block boundaries
+// Find my boundary start and communicate to prev rank for their boundary end (if my start>0)...
 upcxx::future<> FastqReader::continue_open() {
+  if (block_size == -1) return continue_open_default_per_rank_boundaries();  // the old algorithm
+  // use custome block start and block_size
+  if (block_size == 0) {
+    // this rank does not read this file
+    LOG("This rank will not read ", fname, "\n");
+    dist_prom->start_prom.fulfill_result(file_size);
+    dist_prom->stop_prom.fulfill_result(file_size);
+    return dist_prom->set(*this);
+  }
+
+  io_t.start();
+  if (!in) {
+    /* FIXME BGZF
+    if (_is_bgzf)
+      in.reset((zstr::base_ifstream *)new zstr::bgzf_ifstream(fname));
+    else
+      in.reset((zstr::base_ifstream *)new zstr::ifstream(fname));  // works fine for uncompressed files too
+    */
+    in.reset(new ifstream(fname));
+    LOG("Opened ", fname, " in ", io_t.get_elapsed_since_start(), "s.\n");
+  }
+  if (!in) {
+    SDIE("Could not open file ", fname, ": ", strerror(errno));
+  }
+  DBG("in.tell=", in->tellg(), "\n");
+
+  io_t.stop();
+
+  using DPSS = dist_object<PromStartStop>;
+  assert(block_start <= file_size);
+  int64_t my_start = get_fptr_for_next_record(block_start);
+  if (rank_me() > 0 && my_start != 0) {
+    rpc_ff(rank_me() - 1,
+           [](DPSS &dpss, int64_t end_pos) {
+             DBG("end_pos=", end_pos, "\n");
+             dpss->stop_prom.fulfill_result(end_pos);
+           },
+           dist_prom, my_start);
+  }
+  dist_prom->start_prom.fulfill_result(my_start);
+
+  DBG("my_start=", my_start, "\n");
+
+  if (block_start + block_size >= file_size) {
+    // next rank will never send their end as it will not even try to open this file
+    dist_prom->stop_prom.fulfill_result(file_size);
+  } else {
+    // expecting an rpc from rank_me + 1
+  }
+  auto fut_set = dist_prom->set(*this);
+  auto fut_seek = fut_set.then([this]() {
+    DBG("start_read=", start_read, " end_read=", end_read, "\n");
+    if (start_read != end_read) this->seek_start();
+  });
+  progress();
+  return fut_seek;
+}
+
+// all ranks open, 1 rank per node finds block boundaries
+upcxx::future<> FastqReader::continue_open_default_per_rank_boundaries() {
   assert(upcxx::master_persona().active_with_caller());
+  assert(know_file_size.get_future().ready());
+  assert(block_size == -1);
+  auto sz = INT_CEIL(file_size, rank_n());
+  set_block(sz * rank_me(), sz);
   io_t.start();
   if (!in) {
     /* FIXME BGZF
@@ -531,15 +599,15 @@ upcxx::future<> FastqReader::continue_open() {
         continue;
       }
       assert(rank > 0);
-      start_read = read_block * rank;
+      auto pos = block_start;
       /* FIXME BGZF
       if (_is_bgzf) {
         zstr::bgzf_ifstream *bgzf_ifs = dynamic_cast<zstr::bgzf_ifstream *>(in.get());
-        start_read = bgzf_ifs->find_next_bgzf_block(start_read).to_int_id();
+        pos = bgzf_ifs->find_next_bgzf_block(pos).to_int_id();
       }
       */
-      auto pos = get_fptr_for_next_record(start_read);
-      DBG_VERBOSE("Notifying with rank=", rank, " pos=", pos, " after start_read=", start_read, "\n");
+      pos = get_fptr_for_next_record(block_start);
+      DBG_VERBOSE("Notifying with rank=", rank, " pos=", pos, " after block_start=", block_start, "\n");
       wait_prom.get_future().then([rank, pos, &dist_prom = this->dist_prom]() {
         DBG_VERBOSE("Sending pos=", pos, " to stop ", rank - 1, " and start ", rank, "\n");
         // send end to prev rank
@@ -582,6 +650,12 @@ void FastqReader::advise(bool will_need) {
   if (fqr2) fqr2->advise(will_need);  // advise the second file too!
 }
 
+void FastqReader::set_block(int64_t start, int64_t size) {
+  LOG("set_block: file=", fname, " start=", start, " size=", size, " file_size=", file_size, "\n");
+  block_start = start;
+  block_size = size;
+}
+
 void FastqReader::seek_start() {
   // seek to first record
   DBG("Seeking to start_read=", start_read, " reading through end_read=", end_read, " my_file_size=", my_file_size(),
@@ -611,6 +685,7 @@ FastqReader::~FastqReader() {
 
   io_t.done_all_async();  // will print in Timings' order eventually
   FastqReader::overall_io_t += io_t.get_elapsed();
+  DBG("Deconstructed FQR on ", fname, " - ", (void *)this, "\n");
 }
 
 string FastqReader::get_fname() { return fname; }
@@ -628,7 +703,7 @@ size_t FastqReader::my_file_size() {
     size = end_read - start_read;
   }
   if (fqr2) size += fqr2->my_file_size();
-  DBG("my_file_size=", size, "\n");
+  DBG("my_file_size=", size, " fname=", fname, "\n");
   return size;
 }
 
@@ -641,6 +716,7 @@ size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, b
     WARN("Attempt to read ", fname, " before it is ready. wait on open_fut first to avoid this warning!\n");
     open_fut.wait();
   }
+  if (end_read == start_read) return 0;
   if (subsample_pct != 100) {
     assert(subsample_pct > 0);
 
@@ -679,7 +755,7 @@ size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, b
       return bytes_read;
     }
   }
-  if (in->eof() || tellg() >= end_read) return 0;
+  if (!in || in->eof() || tellg() >= end_read) return 0;
   io_t.start();
   size_t bytes_read = 0;
   id = "";
@@ -711,7 +787,7 @@ size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, b
         "\nseq:  ", seq, "\nquals: ", quals);
   if (seq.length() > max_read_len) max_read_len = seq.length();
   io_t.stop();
-  DBG("Read ", id, " bytes=", bytes_read, "\n");
+  DBG_VERBOSE("Read ", id, " bytes=", bytes_read, "\n");
   return bytes_read;
 }
 
@@ -720,21 +796,24 @@ int FastqReader::get_max_read_len() { return std::max(max_read_len, fqr2 ? fqr2-
 double FastqReader::get_io_time() { return overall_io_t; }
 
 void FastqReader::reset() {
+  DBG("reset on FQR of ", fname, "\n");
   if (!open_fut.ready()) {
     open_fut.wait();
   }
-  if (!in) {
-    DIE("Reset called on unopened file\n");
+  if (block_size > 0) {
+    if (!in) {
+      DIE("Reset called on unopened file\n");
+    }
+    io_t.start();
+    assert(in && "reset called on active file");
+    seekg(start_read);
+    if (!in->good()) DIE("Could not fseek on ", fname, " to ", start_read, ": ", strerror(errno));
+    io_t.stop();
+    read_count = 0;
+    first_file = true;
+    DBG("reset on ", fname, " tellg=", in->tellg(), "\n");
   }
-  io_t.start();
-  assert(in && "reset called on active file");
-  seekg(start_read);
-  if (!in->good()) DIE("Could not fseek on ", fname, " to ", start_read, ": ", strerror(errno));
-  io_t.stop();
-  read_count = 0;
   if (fqr2) fqr2->reset();
-  first_file = true;
-  DBG("reset on ", fname, " tellg=", in->tellg(), "\n");
 }
 
 //
@@ -744,22 +823,34 @@ void FastqReader::reset() {
 FastqReaders::FastqReaders()
     : readers() {}
 
-FastqReaders::~FastqReaders() { close_all(); }
+FastqReaders::~FastqReaders() {
+  DBG("Deconstruct FastqReaders!\n");
+  close_all();
+}
 FastqReaders &FastqReaders::getInstance() {
   static FastqReaders _;
   return _;
 }
 
-FastqReader &FastqReaders::open(const string fname, int subsample_pct) {
+bool FastqReaders::is_open(const string fname) {
+  FastqReaders &me = getInstance();
+  auto it = me.readers.find(fname);
+  return it != me.readers.end() && it->second->is_open();
+}
+
+FastqReader &FastqReaders::open(const string fname, int subsample_pct, upcxx::future<> first_wait) {
   FastqReaders &me = getInstance();
   auto it = me.readers.find(fname);
   if (it == me.readers.end()) {
+    DBG("Opening a new FQR ", fname, "\n");
     upcxx::discharge();  // opening itself may take some time
-    auto sh_fqr = make_shared<FastqReader>(fname, false);
+    auto sh_fqr = make_shared<FastqReader>(fname, first_wait);
     if (subsample_pct < 100) sh_fqr->set_subsample_pct(subsample_pct);
     it = me.readers.insert(it, {fname, sh_fqr});
     upcxx::discharge();  // opening requires a broadcast with to complete
     upcxx::progress();   // opening requires some user progress too
+  } else {
+    DBG("Re-opened an existing FQR ", fname, "\n");
   }
   assert(it != me.readers.end());
   assert(it->second);
@@ -781,6 +872,7 @@ void FastqReaders::close(const string fname) {
 }
 
 void FastqReaders::close_all() {
+  DBG("close_all\n");
   FastqReaders &me = getInstance();
   me.readers.clear();
 }

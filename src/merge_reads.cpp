@@ -79,84 +79,79 @@ static const double Q2Perror[] = {
 
 static pair<uint64_t, int> estimate_num_reads(vector<string> &reads_fname_list) {
   // estimate reads in this rank's section of all the files
-  future<int> fut_max_read_len;
   future<> progress_fut = make_future();
-  future<> rpc_fut = make_future();
 
   BarrierTimer timer(__FILEFUNC__);
   FastqReaders::open_all(reads_fname_list);
 
   // Issue #61 - reduce the # of reading ranks to fix excessively long estimates on poor filesystems
-  // only a few ranks need to estimate - local_team().rank_n() / 2 to nodes
+  // only a handful of ranks per file are needed to perform the estimate (i.e. 7)
   auto nodes = rank_n() / local_team().rank_n();
+  auto active_ranks = reads_fname_list.size() * 7;
   intrank_t modulo_rank = 1;
-  if (nodes >= local_team().rank_n() / 2) {
-    modulo_rank = local_team().rank_n();
-  } else {
-    modulo_rank = 2 * nodes;
+  if (rank_n() > active_ranks) {
+    modulo_rank = rank_n() / active_ranks;
   }
   SLOG_VERBOSE("Estimating with 1 rank out of every ", modulo_rank, "\n");
-  dist_object<int64_t> dist_est(world(), 0);
   int64_t num_reads = 0;
   int64_t num_lines = 0;
-  int64_t estimated_total_records = 0;
   int64_t total_records_processed = 0;
+  int64_t total_file_bytes_read = 0;
   string id, seq, quals;
   int max_read_len = 0;
   int read_file_idx = 0;
+  int64_t my_total_file_size = 0;
+  int64_t my_estimated_total_records = 0;
+  std::vector<int> file_bytes_per_record(reads_fname_list.size(), 0);
   for (auto const &reads_fname : reads_fname_list) {
-    // let multiple ranks handle multiple files
-    if (rank_me() % modulo_rank != (read_file_idx++ % modulo_rank)) {
-      ProgressBar progbar((int64_t)0,
-                          "Scanning reads file to estimate number of reads");  // still do the collectives on progress bar...
-      progress_fut = when_all(progress_fut, progbar.set_done());
-      continue;
-    }
     FastqReader &fqr = FastqReaders::get(reads_fname);
     ProgressBar progbar(fqr.my_file_size(), "Scanning reads file to estimate number of reads");
-    size_t tot_bytes_read = 0;
+    size_t tot_bytes_read = 0, file_bytes_read = 0;
     int64_t records_processed = 0;
-    while (true) {
-      size_t bytes_read = fqr.get_next_fq_record(id, seq, quals);
-      if (!bytes_read) break;
-      num_lines += 4;
-      num_reads++;
-      tot_bytes_read += bytes_read;
-      progbar.update(tot_bytes_read);
-      records_processed++;
-      // do not read the entire data set for just an estimate
-      if (records_processed > 50000) break;
+    my_total_file_size += fqr.my_file_size();
+
+    if (fqr.my_file_size() > 0 && rank_me() % modulo_rank == 0) {
+      auto pos = fqr.tellg();
+      while (true) {
+        size_t bytes_read = fqr.get_next_fq_record(id, seq, quals);
+        if (!bytes_read) break;
+        num_lines += 4;
+        num_reads++;
+        tot_bytes_read += bytes_read;
+        progbar.update(tot_bytes_read);
+        records_processed++;
+        // do not read the entire data set for just an estimate
+        if (records_processed > 50000) break;
+      }
+      file_bytes_read = fqr.tellg() - pos;
+      total_file_bytes_read += file_bytes_read;
+      DBG("processed ", records_processed, " records in ", fqr.get_fname(), " over ", file_bytes_read, " file bytes (",
+          tot_bytes_read, " stream bytes)\n");
+      if (tot_bytes_read < file_bytes_read) file_bytes_read = tot_bytes_read;  // use the minimum of the two measures
     }
+
     total_records_processed += records_processed;
-    if (records_processed) {
-      int64_t bytes_per_record = tot_bytes_read / records_processed;
-      int64_t num_records = (fqr.is_bgzf() ? 5 : 1) * fqr.my_file_size() / bytes_per_record;
-      estimated_total_records += num_records;
-      // since each input file is not necessarily run on the same rank
-      // collect the local total estimates to a single rank within modulo_rank
-      assert(read_file_idx > 0);
-      assert(rank_me() >= (read_file_idx - 1) % modulo_rank);
-      auto fut_collect_rpc = rpc(rank_me() - (read_file_idx - 1) % modulo_rank,
-                                 [](dist_object<int64_t> &dist_est, int64_t num_records, int file_i) {
-                                   *dist_est += num_records;
-                                   LOG("Found ", num_records, " in file ", file_i, ", total=", *dist_est, "\n");
-                                 },
-                                 dist_est, num_records, read_file_idx - 1);
-      rpc_fut = when_all(rpc_fut, fut_collect_rpc);
-    }
-    progress_fut = when_all(progress_fut, progbar.set_done());
+    int bytes_per = (int)(records_processed > 0 ? (file_bytes_read / records_processed) : std::numeric_limits<int>::max());
+    auto fut_reduce =
+        reduce_all(bytes_per, upcxx::op_fast_min)
+            .then([&file_bytes_per_record, &fqr, &my_estimated_total_records, read_file_idx](int min_bytes_per) {
+              DBG("Found min_bytes_per=", min_bytes_per, " for file ", fqr.get_fname(), " my_size=", fqr.my_file_size(), "\n");
+              assert(min_bytes_per < std::numeric_limits<int>::max());
+              assert(min_bytes_per > 0);
+              file_bytes_per_record[read_file_idx] = min_bytes_per;
+              my_estimated_total_records += fqr.my_file_size() / min_bytes_per;
+            });
+    progress_fut = when_all(progress_fut, fut_reduce, progbar.set_done());
     max_read_len = max(fqr.get_max_read_len(), max_read_len);
+    read_file_idx++;
   }
-  fut_max_read_len = reduce_all(max_read_len, upcxx::op_fast_max);
-  DBG("This rank processed ", num_lines, " lines (", num_reads, " reads) with max_read_len=", max_read_len, "\n");
+  auto fut_max_read_len = reduce_all(max_read_len, upcxx::op_fast_max);
+  DBG("This rank processed ", num_lines, " lines (", num_reads, " reads) with max_read_len=", max_read_len,
+      " my_est=", my_estimated_total_records, "\n");
   progress_fut.wait();
   max_read_len = fut_max_read_len.wait();
-  rpc_fut.wait();
-  timer.initate_exit_barrier();  // barrier ensures rpc_fut have all completed for next reduction
-  auto fut_max_estimate = reduce_all(*dist_est, upcxx::op_fast_max);
-  estimated_total_records = fut_max_estimate.wait();
-  SLOG_VERBOSE("Found maximum read length of ", max_read_len, " and max estimated total ", estimated_total_records, " per rank\n");
-  return {estimated_total_records, max_read_len};
+  SLOG_VERBOSE("Found maximum read length of ", max_read_len, " and max est total ", my_estimated_total_records, "\n");
+  return {my_estimated_total_records, max_read_len};
 }
 
 // returns the number of mismatches if it is <= max or a number greater than max (but no the actual count)
@@ -236,9 +231,11 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
   auto max_num_reads = upcxx::reduce_all(my_num_reads_estimate, upcxx::op_fast_max).wait();
   auto tot_num_reads = upcxx::reduce_all(my_num_reads_estimate, upcxx::op_fast_add).wait();
   SLOG_VERBOSE("Estimated total number of reads as ", tot_num_reads, ", and max for any rank ", max_num_reads, "\n");
-  // triple the block size estimate to be sure that we have no overlap. The read ids do not have to be contiguous
-  uint64_t read_id = rank_me() * (max_num_reads + 10000) * 3;
+  // 2 reads per pair, 5x the block size estimate to be sure that we have no overlap. The read ids do not have to be contiguous
+  auto read_id_block = (max_num_reads + 10000) * 2 * 5;
+  uint64_t read_id = rank_me() * read_id_block;
   uint64_t start_read_id = read_id;
+  DBG("starting read_id=", start_read_id, " max_num_reads=", max_num_reads, " read_id_block=", read_id_block, "\n");
   IntermittentTimer dump_reads_t("dump_reads");
   future<> wrote_all_files_fut = make_future();
   promise<> summary_promise;
@@ -285,13 +282,17 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
     int64_t num_ambiguous = 0;
     int64_t num_merged = 0;
     int64_t num_reads = 0;
-    DBG("Starting merge\n");
+    DBG("Starting merge on ", fqr.get_fname(), " read_id=", read_id, " tell=", (int64_t)(fqr.my_file_size() > 0 ? fqr.tellg() : -1),
+        " sz=", fqr.my_file_size(), "\n");
     for (;; num_pairs++) {
-      DBG("Merging num_pair=", num_pairs, "\n");
+      DBG_VERBOSE("Merging num_pair=", num_pairs, " read_id=", read_id, "\n");
       if (!fqr.is_paired()) {
         // unpaired reads get dummy read2 just like merged reads
         int64_t bytes_read1 = fqr.get_next_fq_record(id1, seq1, quals1);
-        if (!bytes_read1) break;
+        if (!bytes_read1) {
+          DBG("Found end on ", fqr.get_fname(), " after read_id=", read_id, "\n");
+          break;
+        };
         bytes_read += bytes_read1;
         progbar.update(bytes_read);
         packed_reads_list[ri]->add_read("r" + to_string(read_id) + "/1", seq1, quals1);
@@ -526,6 +527,8 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
     ri++;
     FastqReaders::close(reads_fname);
   }
+  DBG("last read_id=", read_id, " last should not be > ", start_read_id + read_id_block, "\n");
+  assert(read_id < start_read_id + read_id_block);
   merge_time.initiate_exit_reduction();
 
   //#ifdef DEBUG

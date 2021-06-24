@@ -67,9 +67,10 @@ class FastqReader {
   // FIXME BGZF std::unique_ptr<zstr::base_ifstream> in;
   std::unique_ptr<ifstream> in;
   promise<> know_file_size;
-  int64_t file_size;   // may be bgzf_virtual_file_pointer int
-  int64_t start_read;  // may be bgzf_virtual_file_pointer int
-  int64_t end_read;    // may be bgzf_virtual_file_pointer int
+  int64_t file_size;                         // may be bgzf_virtual_file_pointer int
+  int64_t block_start = 0, block_size = -1;  // raw offsets. block_start <= start_read;  end_read<= block_start + block_size
+  int64_t start_read;                        // may be bgzf_virtual_file_pointer int
+  int64_t end_read;                          // may be bgzf_virtual_file_pointer int
   unsigned max_read_len;
   int subsample_pct = 100;
   string buf;
@@ -83,9 +84,14 @@ class FastqReader {
   struct PromStartStop {
     promise<int64_t> start_prom, stop_prom;
     upcxx::future<> set(FastqReader &fqr) {
-      DBG("Setting fqr ", fqr.fname, " start=", fqr.start_read, " end=", fqr.end_read, "\n");
-      auto set_start = start_prom.get_future().then([&fqr](int64_t start) { fqr.start_read = start; });
-      auto set_end = stop_prom.get_future().then([&fqr](int64_t stop) { fqr.end_read = stop; });
+      auto set_start = start_prom.get_future().then([&fqr](int64_t start) {
+        DBG("Set start_read at ", start, " on ", fqr.fname, "\n");
+        fqr.start_read = start;
+      });
+      auto set_end = stop_prom.get_future().then([&fqr](int64_t stop) {
+        DBG("Set end_read at ", stop, " on ", fqr.fname, "\n");
+        fqr.end_read = stop;
+      });
       return when_all(set_start, set_end);
     }
   };
@@ -104,7 +110,7 @@ class FastqReader {
 
  public:
   FastqReader() = delete;  // no default constructor
-  FastqReader(const string &_fname, bool wait = false, upcxx::future<> first_wait = make_future());
+  FastqReader(const string &_fname, upcxx::future<> first_wait = make_future());
 
   void set_subsample_pct(int pct) {
     assert(subsample_pct > 0 && subsample_pct <= 100);
@@ -114,6 +120,7 @@ class FastqReader {
 
   // this happens within a separate thread
   upcxx::future<> continue_open();
+  upcxx::future<> continue_open_default_per_rank_boundaries();
 
   ~FastqReader();
 
@@ -124,6 +131,8 @@ class FastqReader {
   upcxx::future<int64_t> get_file_size() const;
 
   void advise(bool will_need);
+
+  void set_block(int64_t start, int64_t size);
 
   size_t get_next_fq_record(string &id, string &seq, string &quals, bool wait_open = true);
   int get_max_read_len();
@@ -142,6 +151,7 @@ class FastqReader {
                                            dist_object<PromStartStop> &dist_start_stop2);
   void seek_start();
   int64_t tellg();
+  bool is_open() { return open_fut.ready(); }
 };
 
 class FastqReaders {
@@ -155,10 +165,18 @@ class FastqReaders {
  public:
   static FastqReaders &getInstance();
 
-  static FastqReader &open(const string fname, int subsample_pct = 100);
+  static bool is_open(const string fname);
+
+  static FastqReader &open(const string fname, int subsample_pct = 100, upcxx::future<> first_wait = make_future());
 
   template <typename Container>
   static void open_all(Container &fnames, int subsample_pct = 100) {
+    DBG("Open all ", fnames.size(), " files\n");
+    open_all_global_blocking(fnames, subsample_pct);
+  }
+
+  template <typename Container>
+  static void open_all_file_blocking(Container &fnames, int subsample_pct = 100) {
     // every rank opens a partition of every file
     assert(subsample_pct > 0 && subsample_pct <= 100);
     for (string &fname : fnames) {
@@ -167,27 +185,134 @@ class FastqReaders {
   }
 
   template <typename Container>
-  static void open_all_by_block(Container &fnames, int subsample_pct = 100) {
+  static void open_all_global_blocking(Container &fnames, int subsample_pct = 100) {
     // opens only some files and reads a partition, as if the entire set of files is one single concatented file
+
+    // all files need to be opened together.  Verify either all or none are open
+    bool needs_blocking = false;
+    for (string &fname : fnames) {
+      if (!is_open(fname)) needs_blocking = true;
+    }
+    if (!needs_blocking) return;  // all are open
+
     std::vector<promise<>> know_blocks(fnames.size());
     std::vector<int64_t> file_sizes(fnames.size());
     int64_t total_size = 0;
     assert(subsample_pct > 0 && subsample_pct <= 100);
     int filenum = 0;
     upcxx::future<> chain_fut = make_future();
-    for (string &fname : fnames) {
-      /*
-      auto &fqr = open(fname, true, know_blocks[filenum].get_future());
-      future<> fut = fqr.get_file_size().then([&total_size, &file_size = file_sizes[filenum]](int64_t sz) {
-        file_size = sz;
-        total_size += sz;
-      });
-      chain_fut = when_all(chain_fut, fut);
-      */
-    }
-    chain_fut = chain_fut.then([&file_sizes, &total_size, &know_blocks]() {
 
+    for (string &fname : fnames) {
+      if (is_open(fname)) {
+        close(fname);
+      }
+      auto &fqr = open(fname, subsample_pct, know_blocks[filenum].get_future());
+      if (!fqr.is_open()) {
+        needs_blocking = true;
+        upcxx::future<> fut = fqr.get_file_size().then([&total_size, &file_size = file_sizes[filenum]](int64_t sz) {
+          file_size = sz;
+          total_size += sz;
+        });
+        chain_fut = when_all(chain_fut, fut);
+      }
+      filenum++;
+    }
+
+    chain_fut = chain_fut.then([&fnames, &file_sizes, &total_size, &know_blocks]() {
+      assert(fnames.size() == file_sizes.size());
+      assert(file_sizes.size() == know_blocks.size());
+      auto global_block = INT_CEIL(total_size, rank_n());
+      auto my_global_start = global_block * rank_me();
+      auto my_global_stop = my_global_start + global_block;
+      int64_t my_read_offset = 0;
+      int64_t my_read_remaining = global_block;
+      DBG("Determining global blocks global_block=", global_block, " my_start=", my_global_start, " my_stop=", my_global_stop,
+          "\n");
+      for (int i = 0; i < file_sizes.size(); i++) {
+        // Default is to not read this file
+        auto file_start = file_sizes[i];
+        auto file_stop = file_sizes[i];
+        auto global_file_start = my_read_offset;
+        auto global_file_stop = global_file_start + file_sizes[i];
+
+        DBG("file[", i, "] size=", file_sizes[i], " read_offset/file_start=", my_read_offset, " file_stop=", global_file_stop,
+            " remaining=", my_read_remaining, "\n");
+        if (global_file_stop <= my_global_start) {
+          DBG("file[", i, "] is completely before my block\n");
+          assert(global_file_start <= my_global_start);
+          assert(global_file_stop <= my_global_start);
+          assert(global_file_start <= my_global_stop);
+          assert(global_file_stop <= my_global_stop);
+        } else if (my_global_stop <= global_file_start) {
+          DBG("file[", i, "] is completely after my block. global_file_start=", global_file_start,
+              " global_file_stop=", global_file_stop, "\n");
+          assert(my_read_remaining == 0);
+          assert(global_file_start >= my_global_start);
+          assert(global_file_stop >= my_global_start);
+          assert(global_file_start >= my_global_stop);
+          assert(global_file_stop >= my_global_stop);
+        } else {
+          // file is at least partially within my block
+          if (my_global_start <= global_file_start && global_file_stop <= my_global_stop) {
+            // file is completely contained within my block
+            DBG("file[", i, "] is completely contained within my block. global_file_start=", global_file_start,
+                " global_file_stop=", global_file_stop, "\n");
+            assert(global_file_start <= my_global_stop);
+            file_start = 0;
+            assert(file_stop == file_sizes[i]);
+          } else if (global_file_start <= my_global_start && my_global_stop <= global_file_stop) {
+            // my block is completely contained with this file
+            DBG("file[", i, "] completely contains my block. ", global_file_start, " global_file_stop=", global_file_stop, "\n");
+            file_start = my_global_start - global_file_start;
+            file_stop = file_start + my_read_remaining;
+          } else if (global_file_start <= my_global_start && my_global_start < global_file_stop &&
+                     global_file_stop < my_global_stop) {
+            // file crosses my block start and ends within my block
+            DBG("file[", i, "] crosses just my block start. global_file_start=", global_file_start,
+                " global_file_stop=", global_file_stop, "\n");
+            assert(global_file_stop <= my_global_stop);
+            file_start = my_global_start - global_file_start;
+            assert(file_start < file_stop);
+            assert(file_stop == file_sizes[i]);
+          } else if (my_global_start < global_file_start && global_file_start < my_global_stop &&
+                     my_global_stop <= global_file_stop) {
+            // file starts within my block and crosses my block end
+            DBG("file[", i, "] crosses just my block end. global_file_start=", global_file_start,
+                " global_file_stop=", global_file_stop, "\n");
+            assert(my_global_start <= global_file_start);
+            assert(global_file_start + my_read_remaining <= global_file_stop);
+            file_start = 0;
+            file_stop = my_read_remaining;
+            assert(file_stop <= file_sizes[i]);
+          } else {
+            DIE("Should not get here!");
+          }
+        }
+        DBG("file_start=", file_start, " file_stop=", file_stop, " my_read_remaining=", my_read_remaining, "\n");
+        assert(file_start <= file_stop);
+        assert(file_start <= file_sizes[i]);
+        assert(file_stop <= file_sizes[i]);
+        auto file_read_len = file_stop - file_start;
+        assert(file_read_len <= my_read_remaining);
+        my_read_remaining -= file_read_len;
+        assert(my_read_remaining >= 0);
+
+        // set the partially open FQR block for this file
+        auto it = getInstance().readers.find(fnames[i]);
+        assert(it != getInstance().readers.end());
+        it->second->set_block(file_start, file_read_len);
+
+        DBG("block for i=", i, " file=", fnames[i], " file_start=", file_start, " file_stop=", file_stop, " len=", file_read_len,
+            " size=", file_sizes[i], "\n");
+
+        // notify FQR::continue_open to continue to open
+        know_blocks[i].fulfill_anonymous(1);
+        my_read_offset = global_file_stop;
+      }
     });
+
+    // block and wait with variables still in scope
+    chain_fut.wait();
   }
 
   static FastqReader &get(const string fname);
