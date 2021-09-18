@@ -64,19 +64,28 @@ static int get_gpu_device_count() {
   return device_count;
 }
 
-size_t gpu_utils::get_gpu_tot_mem() {
+void gpu_utils::set_gpu_device(int rank_me) {
+  int device_count = 0;
+  cudaErrchk(cudaGetDeviceCount(&device_count));
+  cudaErrchk(cudaSetDevice(rank_me % device_count));
+}
+
+size_t gpu_utils::get_gpu_tot_mem(int rank_me) {
+  set_gpu_device(rank_me);
   cudaDeviceProp prop;
   cudaErrchk(cudaGetDeviceProperties(&prop, 0));
   return prop.totalGlobalMem;
 }
 
-size_t gpu_utils::get_gpu_avail_mem() {
+size_t gpu_utils::get_gpu_avail_mem(int rank_me) {
+  set_gpu_device(rank_me);
   size_t free_mem, tot_mem;
   cudaErrchk(cudaMemGetInfo(&free_mem, &tot_mem));
   return free_mem;
 }
 
-string gpu_utils::get_gpu_device_name() {
+string gpu_utils::get_gpu_device_name(int rank_me) {
+  set_gpu_device(rank_me);
   cudaDeviceProp prop;
   cudaErrchk(cudaGetDeviceProperties(&prop, 0));
   return prop.name;
@@ -100,38 +109,34 @@ vector<string> gpu_utils::get_gpu_uuids() {
     uuids.push_back(get_uuid_str(prop.uuid.bytes));
 #else
     ostringstream os;
-    os << prop.name << ':' << prop.pciDeviceID << ':' << prop.pciBusID << ':' << prop.pciDomainID << ':' << prop.multiGpuBoardGroupID;
+    os << prop.name << ':' << prop.pciDeviceID << ':' << prop.pciBusID << ':' << prop.pciDomainID << ':'
+       << prop.multiGpuBoardGroupID;
     uuids.push_back(os.str());
 #endif
   }
   return uuids;
 }
 
-void gpu_utils::set_gpu_device(int my_rank) {
-  int device_count = 0;
-  cudaErrchk(cudaGetDeviceCount(&device_count));
-  int my_gpu_id = my_rank % device_count;
-  cudaErrchk(cudaSetDevice(my_gpu_id));
+string gpu_utils::get_gpu_uuid(int rank_me) {
+  auto uuids = get_gpu_uuids();
+  return uuids[rank_me % uuids.size()];
 }
 
 bool gpu_utils::gpus_present() { return get_gpu_device_count(); }
 
 void gpu_utils::initialize_gpu(double& time_to_initialize, int rank_me) {
   using timepoint_t = chrono::time_point<chrono::high_resolution_clock>;
-  double* first_touch;
-
   timepoint_t t = chrono::high_resolution_clock::now();
   chrono::duration<double> elapsed;
 
   if (!gpus_present()) return;
   set_gpu_device(rank_me);
-  cudaErrchk(cudaMallocHost((void**)&first_touch, sizeof(double)));
-  cudaErrchk(cudaFreeHost(first_touch));
+  cudaErrchk(cudaDeviceReset());
   elapsed = chrono::high_resolution_clock::now() - t;
   time_to_initialize = elapsed.count();
 }
 
-string gpu_utils::get_gpu_device_description() {
+string gpu_utils::get_gpu_device_descriptions() {
   cudaDeviceProp prop;
   int num_devs = get_gpu_device_count();
   ostringstream os;
