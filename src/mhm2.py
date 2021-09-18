@@ -456,6 +456,14 @@ def main():
     if 'UPCXX_SHARED_HEAP_SIZE' not in os.environ:
         cmd.extend(['-shared-heap', options.shared_heap]) # both upcxx-run and upcxx-run-summit support this
 
+    # special spawning for perlmutter that requires srun, not upcxx-run for now
+    if 'NERSC_HOST' in os.environ and os.environ['NERSC_HOST'] == 'perlmutter':
+        cmd = ['srun', '-n', str(options.procs), '-N', str(num_nodes), '--gpus-per-node=4']
+        if 'UPCXX_SHARED_HEAP_SIZE' not in os.environ:
+            os.environ['UPCXX_SHARED_HEAP_SIZE'] = '450 MB'
+        print("This is Perlmutter - executing srun directly and overriding UPCXX_SHARED_HEAP_SIZE=", os.environ['UPCXX_SHARED_HEAP_SIZE'], ":", cmd)
+        
+
     if options.preproc:
         print("Executing preprocess options: ", options.preproc)
         pplist = options.preproc.split(',')
