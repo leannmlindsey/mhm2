@@ -458,7 +458,7 @@ def main():
 
     # special spawning for perlmutter that requires srun, not upcxx-run for now
     if 'NERSC_HOST' in os.environ and os.environ['NERSC_HOST'] == 'perlmutter':
-        cmd = ['srun', '-n', str(options.procs), '-N', str(num_nodes), '--gpus-per-node=4']
+        cmd = ['srun', '-n', str(options.procs), '-N', str(num_nodes), '--ntasks-per-gpu=16']
         if 'UPCXX_SHARED_HEAP_SIZE' not in os.environ:
             os.environ['UPCXX_SHARED_HEAP_SIZE'] = '450 MB'
         print("This is Perlmutter - executing srun directly and overriding UPCXX_SHARED_HEAP_SIZE=", os.environ['UPCXX_SHARED_HEAP_SIZE'], ":", cmd)
@@ -494,9 +494,7 @@ def main():
         #runtime_vars += ' GASNET_STATSNODES="0-%d", ' % (cores * num_nodes)
         runtime_vars += runtime_output_vars
 
-    # it appears that this GASNET_COLL_SCRATCH_SIZE  is still needed
-    print("Setting GASNET_COLL_SCRATCH_SIZE=4M", runtime_vars)
-    runenv = eval('dict(os.environ, GASNET_COLL_SCRATCH_SIZE="4M", %s MHM2_RUNTIME_PLACEHOLDER="")' % (runtime_vars))
+    runenv = eval('dict(os.environ, %s MHM2_RUNTIME_PLACEHOLDER="")' % (runtime_vars))
     #print("Runtime environment: ", runenv)
 
     mhm2_lib_path = os.path.split(sys.argv[0])[0] + '/../lib'
