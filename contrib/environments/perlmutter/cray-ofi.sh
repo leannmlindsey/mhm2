@@ -3,15 +3,11 @@ module load cmake
 
 export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-cray/bin:$PATH
 
+export FI_PROVIDER='verbs;ofi_rxm'
 export UCX_TLS=dc
 export UCX_DC_MLX5_NUM_DCI=16
 
-export UCX_RC_MLX5_RETRY_COUNT=40
-export UCX_UD_MLX5_TIMEOUT=600000000.00us
-export UCX_RC_MLX5_TIMEOUT=1200000.00us
-export UCX_DC_MLX5_TIMEOUT=1200000.00us
-export UCX_DC_MLX5_RETRY_COUNT=40
-export UCX_WARN_UNUSED_ENV_VARS=n
+export UPCXX_NETWORK=ofi
 
 module list
 which cc
