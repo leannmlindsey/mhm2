@@ -445,16 +445,20 @@ def main():
 
     cmd = ['upcxx-run', '-n', str(options.procs), '-N', str(num_nodes)]
 
-    # special spawner for summit -- executes jsrun and picks up job size from the environment!
+    # special spawner for summit that auto-detects the job size and calls jsrun to properly bind cpus, gpus and hca network devices
     if 'LMOD_SYSTEM_NAME' in os.environ and os.environ['LMOD_SYSTEM_NAME'] == "summit":
-        # expect mhm2-upcxx-run-summit to be in same directory as mhm2.py too
-        cmd = [os.path.split(sys.argv[0])[0] + '/mhm2-upcxx-run-summit']
-        print("This is Summit - executing custom script mhm2-upcxx-run-summit to spawn the job", cmd)
+        cmd = ['upcxx-jsrun']
         if 'UPCXX_RUN_SUMMIT_OPTS' in os.environ:
-            cmd.extend(os.environ['UPCXX_RUN_SUMMIT_OPTS'].split())
+            # use environmental variable override
+            if os.environ['UPCXX_RUN_SUMMIT_OPTS'] != '':
+                cmd.extend(os.environ['UPCXX_RUN_SUMMIT_OPTS'].split())
+        else:
+            # default to split ranks by gpu
+            cmd.extend(['--by-gpu'])
+        print("This is Summit - executing custom script upcxx-jsrun to spawn the job", cmd)
 
     if 'UPCXX_SHARED_HEAP_SIZE' not in os.environ:
-        cmd.extend(['-shared-heap', options.shared_heap]) # both upcxx-run and upcxx-run-summit support this
+        cmd.extend(['-shared-heap', options.shared_heap])
 
     if options.preproc:
         print("Executing preprocess options: ", options.preproc)
