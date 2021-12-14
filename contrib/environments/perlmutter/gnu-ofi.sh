@@ -1,9 +1,11 @@
-module load PrgEnv-cray
+module load PrgEnv-gnu
+#module load cpe-cuda
+module load gcc/9.3.0
 module load cmake
 module load cuda
 module load cudatoolkit
 
-export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-cray/bin:$PATH
+export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-gnu/bin:$PATH
 
 export FI_PROVIDER='verbs;ofi_rxm'
 export UCX_TLS=dc

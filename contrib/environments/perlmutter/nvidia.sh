@@ -1,11 +1,9 @@
-module load PrgEnv-gnu
-#module load cpe-cuda
-module load gcc/9.3.0
+module load cpe-cuda
+module load PrgEnv-nvidia
 module load cmake
-module load cuda
-module load cudatoolkit
+module load nvidia-nersc/21.5
 
-export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-gnu/bin:$PATH
+export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-nvidia/bin:$PATH
 
 module list
 which cc

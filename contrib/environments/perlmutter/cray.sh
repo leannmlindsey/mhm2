@@ -1,5 +1,7 @@
 module load PrgEnv-cray
 module load cmake
+module load cuda
+module load cudatoolkit
 
 export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-cray/bin:$PATH
 
