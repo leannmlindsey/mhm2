@@ -279,7 +279,7 @@ static void load_adapter_seqs(const string &fname, adapter_hash_table_t &adapter
 */
 }
 
-static void trim_adapters(StripedSmithWaterman::Aligner &ssw_aligner, StripedSmithWaterman::Filter &ssw_filter,
+static bool trim_adapters(StripedSmithWaterman::Aligner &ssw_aligner, StripedSmithWaterman::Filter &ssw_filter,
                           adapter_hash_table_t &adapters, const string &rname, string &seq, bool is_read_1, int adapter_k,
                           int64_t &bases_trimmed, int64_t &reads_removed) {
   vector<Kmer<MAX_ADAPTER_K>> kmers;
@@ -316,7 +316,9 @@ static void trim_adapters(StripedSmithWaterman::Aligner &ssw_aligner, StripedSmi
     if (!best_trim_pos) reads_removed++;
     bases_trimmed += seq.length() - best_trim_pos;
     seq.resize(best_trim_pos);
+    return true;
   }
+  return false;
 }
 
 void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elapsed_write_io_t,
@@ -390,7 +392,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
     const int16_t EXTRA_MISMATCHES_PER_1000 = (int)150;  // allow addtl mismatches per 1000 bases overlap before aborting test
     const uint8_t MAX_MATCH_QUAL = 41 + qual_offset;
 
-    string id1, seq1, quals1, id2, seq2, quals2;
+    string id1, seq1, quals1, id2, seq2, quals2, tmp_id, tmp_seq, tmp_quals;
     int64_t num_pairs = 0;
     int64_t bytes_read = 0;
     int64_t num_ambiguous = 0;
@@ -399,7 +401,10 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
     int64_t bases_trimmed = 0;
     int64_t reads_removed = 0;
     int64_t bases_read = 0;
+    int64_t missing_read1 = 0;
+    int64_t missing_read2 = 0;
 
+    bool skip_read1 = false, skip_read2 = false;
     for (;; num_pairs++) {
       if (!fqr.is_paired()) {
         // unpaired reads get dummy read2 just like merged reads
@@ -416,27 +421,96 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         }
         continue;
       }
-      int64_t bytes_read1 = fqr.get_next_fq_record(id1, seq1, quals1);
-      if (!bytes_read1) break;
-      int64_t bytes_read2 = fqr.get_next_fq_record(id2, seq2, quals2);
-      if (!bytes_read2) break;
-      bytes_read += bytes_read1 + bytes_read2;
-      bases_read += seq1.length() + seq2.length();
+      if (skip_read1 && skip_read2) break;
+      if (!skip_read1) {
+        int64_t bytes_read1 = fqr.get_next_fq_record(id1, seq1, quals1);
+        if (!bytes_read1) break; // end of file
+        DBG("Read1: ", id1, " ", seq1.length(), "\n");
+      
+        bytes_read += bytes_read1;
+        bases_read += seq1.length();
+      } else {
+        // use the last read as read1
+        assert(!tmp_id.empty());
+        DBG("Using deferred Read1: ", tmp_id, " ", tmp_seq.length(), "\n");
+        id1 = tmp_id;
+        seq1 = tmp_seq;
+        quals1 = tmp_quals;
+        skip_read1 = false;
+        tmp_id.clear();
+      }
+
+      if (id1.length() > 2 && id1[id1.length() - 1] == '1') {
+        skip_read2 = false;
+      } else {
+        assert(id1.empty() || id1[id1.length()-1] == '2');
+        DBG("Missing read1, faking it\n");
+        // got read 2: missing read 1 of expected pair! (Issue 117 to be robust to this missing read)
+        missing_read1++;
+        // set read2
+        id2=id1;
+        seq2=seq1;
+        quals2=quals1;
+        // generate a fake read1
+        id1[id1.length()-1] = '1';
+        seq1 = "N";
+        quals1 = to_string((char)qual_offset);
+        skip_read2 = true;
+      }
+
+      if (!skip_read2) {
+        int64_t bytes_read2 = fqr.get_next_fq_record(id2, seq2, quals2);
+        if (!bytes_read2) {
+          // record missing read2
+          id2.clear();
+        }
+        DBG("Read2: ", id2, " ", seq2.length(), "\n");
+        bytes_read += bytes_read2;
+        bases_read += seq2.length();
+      } else {
+        skip_read2 = false;
+      }
+      if (id2.length() > 2 && id2[id2.length()-1] == '2' && id1.compare(0, id1.length() - 1, id2, 0, id2.length() - 1) == 0) {
+        skip_read1 = false;
+      } else {
+        if (skip_read1) break; // end of file
+        assert(id2.empty() || id2[id2.length()-1] == '1' || id2[id2.length()-1] == '2'); // can miss both this read2 and the next read1, getting the next read2
+        DBG("Missing read2, faking it\n");
+        // got read1 : missing read2 of expected pair! (Issue 117 to be robust to this missing read)
+        missing_read2++;
+        // preserve this as the *next* read1
+        assert(tmp_id.empty());
+        tmp_id = id2;
+        tmp_seq = seq2;
+        tmp_quals = quals2;
+        // generate a fake read2
+        if (id2.empty()) skip_read2 = true; // end of file
+        id2 = id1;
+        id2[id2.length()-1] = '2';
+        seq2 = "N";
+        quals2 = to_string((char)qual_offset);
+        skip_read1 = true;
+      }
+
       progbar.update(bytes_read);
 
       if (id1.compare(0, id1.length() - 2, id2, 0, id2.length() - 2) != 0) DIE("Mismatched pairs ", id1, " ", id2);
       if (id1[id1.length() - 1] != '1' || id2[id2.length() - 1] != '2') DIE("Mismatched pair numbers ", id1, " ", id2);
 
       if (!adapters.empty()) {
-        trim_adapters(ssw_aligner, ssw_filter, adapters, id1, seq1, true, min_kmer_len, bases_trimmed, reads_removed);
-        trim_adapters(ssw_aligner, ssw_filter, adapters, id2, seq2, false, min_kmer_len, bases_trimmed, reads_removed);
+        bool trim1 = trim_adapters(ssw_aligner, ssw_filter, adapters, id1, seq1, true, min_kmer_len, bases_trimmed, reads_removed);
+        bool trim2 = trim_adapters(ssw_aligner, ssw_filter, adapters, id2, seq2, false, min_kmer_len, bases_trimmed, reads_removed);
         // trim to same length - like the tpe option in bbduk
-        auto min_seq_len = min(seq1.length(), seq2.length());
-        seq1.resize(min_seq_len);
-        seq2.resize(min_seq_len);
+        if ((trim1 || trim2) && seq1.length() > 1 && seq2.length() > 1) {
+          auto min_seq_len = min(seq1.length(), seq2.length());
+          seq1.resize(min_seq_len);
+          seq2.resize(min_seq_len);
+          quals1.resize(min_seq_len);
+          quals2.resize(min_seq_len);
+        }
         // it's possible that really short reads could be merged, but unlikely and they'd still be short, so drop all below min
         // kmer length
-        if (seq1.length() < min_kmer_len) continue;
+        if (seq1.length() < min_kmer_len && seq2.length() < min_kmer_len) continue;
       }
 
       bool is_merged = 0;
@@ -638,15 +712,17 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
                                    reduce_one(num_ambiguous, op_fast_add, 0), reduce_one(merged_len, op_fast_add, 0),
                                    reduce_one(overlap_len, op_fast_add, 0), reduce_one(max_read_len, op_fast_max, 0),
                                    reduce_one(bases_trimmed, op_fast_add, 0), reduce_one(reads_removed, op_fast_add, 0),
-                                   reduce_one(bases_read, op_fast_add, 0));
+                                   reduce_one(bases_read, op_fast_add, 0),
+                                   reduce_one(missing_read1, op_fast_add, 0), reduce_one(missing_read2, op_fast_add, 0));
     fut_summary = when_all(fut_summary, fut_reductions)
                       .then([reads_fname, bytes_read, adapters](
                                 int64_t all_num_pairs, int64_t all_num_merged, int64_t all_num_ambiguous, int64_t all_merged_len,
                                 int64_t all_overlap_len, int all_max_read_len, int64_t all_bases_trimmed, int64_t all_reads_removed,
-                                int64_t all_bases_read) {
+                                int64_t all_bases_read, int64_t all_missing_read1, int64_t all_missing_read2) {
                         SLOG_VERBOSE("Merged reads in file ", reads_fname, ":\n");
-                        SLOG_VERBOSE("  merged ", perc_str(all_num_merged, all_num_pairs), " pairs\n");
+                        SLOG_VERBOSE("  merged ", perc_str(all_num_merged, all_num_pairs), " of ", all_num_pairs, " pairs\n");
                         SLOG_VERBOSE("  ambiguous ", perc_str(all_num_ambiguous, all_num_pairs), " ambiguous pairs\n");
+                        SLOG_VERBOSE("  missing pair1 ", all_missing_read1, " pair2 ", all_missing_read2, "\n");
                         SLOG_VERBOSE("  average merged length ", (double)all_merged_len / all_num_merged, "\n");
                         SLOG_VERBOSE("  average overlap length ", (double)all_overlap_len / all_num_merged, "\n");
                         SLOG_VERBOSE("  max read length ", all_max_read_len, "\n");
