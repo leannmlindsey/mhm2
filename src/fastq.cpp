@@ -635,7 +635,6 @@ size_t FastqReader::my_file_size() {
   size_t size = 0;
   size = end_read - start_read;
   if (fqr2) size += fqr2->my_file_size();
-  DBG2("my_file_size=", size, " fname=", fname, "\n");
   return size;
 }
 
