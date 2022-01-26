@@ -127,21 +127,11 @@ bool FastqReader::get_fq_name(string &header) {
 
 int64_t FastqReader::tellg() {
   return in->tellg();
-  /* FIXME BGZF
-  zstr::bgzf_ifstream *bgzf_in = _is_bgzf ? dynamic_cast<zstr::bgzf_ifstream *>(in.get()) : nullptr;
-  return bgzf_in ? zstr::bgzf_virtual_file_pointer::to_int_id(bgzf_in->get_bgzf_virtual_file_pointer()) : in->tellg();
-  */
+
 }
 
 void FastqReader::seekg(int64_t pos) {
   in->seekg(pos);
-  /* FIXME BGZF
-  zstr::bgzf_ifstream *bgzf_in = _is_bgzf ? dynamic_cast<zstr::bgzf_ifstream *>(in.get()) : nullptr;
-  if (bgzf_in)
-    bgzf_in->seek_to_bgzf_pointer(zstr::bgzf_virtual_file_pointer::from_int_id(pos));
-  else
-    in->seekg(pos);
-    */
   assert(tellg() == pos);
 }
 
@@ -154,17 +144,6 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
   io_t.start();
 
   in->seekg(offset);
-  /* FIXME BGZF
-  zstr::bgzf_ifstream *bgzf_in = _is_bgzf ? dynamic_cast<zstr::bgzf_ifstream *>(in.get()) : nullptr;
-
-  if (bgzf_in) {
-    auto vfp = zstr::bgzf_virtual_file_pointer::from_int_id(offset);
-    bgzf_in->seek_to_bgzf_pointer(vfp);
-  } else {
-    in->seekg(offset);
-  }
-  */
-
   if (!in->good()) DIE("Could not fseek in ", fname, " to ", offset, ": ", strerror(errno));
   // skip first (likely partial) line after this offset to ensure we start at the beginning of a line
   std::getline(*in, buf);
@@ -230,7 +209,10 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
               case ('G'):
               case ('T'):
               case ('N'): break;  // okay
-              case ('\n'):        // newline is not expected here
+              case ('\n'):        
+                // newline is not expected here, but okay if last char
+                record_found = k == seqlen - 1;
+                if (record_found) break;
               case ('@'):         // previous was quality line, this next line is the header line.
               default:            // not okay
                 DBG_VERBOSE("Found non-seq '", tmp2[k], "' at ", k, " in: ", tmp2, "\n");
@@ -298,7 +280,6 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
     , fqr2(nullptr)
     , first_file(true)
     , _is_paired(true)
-    , _is_bgzf(false)
     , io_t("fastq IO for " + fname)
     , dist_prom(world())
     , open_fut(make_future()) {
@@ -322,23 +303,7 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
     // only one rank gets the file size, to prevent many hits on metadata
     io_t.start();
     file_size = upcxx_utils::get_file_size(fname);
-    if (fname.find(".gz") != std::string::npos) {
-      DIE("FIXME BGZF!");
-      // File is gzip. If it is BGZF compatible we can use it, otherwise throw an error
-      SLOG_VERBOSE("Checking for BGZF header in ", fname, "\n");
-      /* FIXME BGZF
-      in.reset((zstr::base_ifstream *)new zstr::bgzf_ifstream(fname));
-      if (!zstr::is_bgzf(in.get())) {
-        DIE("The input file '", fname, "' is compressed but is NOT in a BGZF-compatible gzip format!");
-      }
-      _is_bgzf = true;
-      */
-    } else {
-      in = std::make_unique<ifstream>(fname);  // FIXME BGZF std::make_unique<zstr::ifstream>(fname);
-    }
-    if (_is_bgzf) {
-      // FIXME BGZF file_size = -zstr::bgzf_virtual_file_pointer(file_size, 0).to_int_id();  // negative as signal for other ranks
-    }
+    in = std::make_unique<ifstream>(fname);
     io_t.stop();
     buf.reserve(BUF_SIZE);
     DBG("Found file_size=", file_size, " for ", fname, "\n");
@@ -346,12 +311,7 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
 
   future<> file_size_fut = upcxx::broadcast(file_size, 0).then([&self = *this](int64_t sz) {
     self.file_size = sz;
-    if (sz < 0) {
-      self.file_size = -sz;
-      self._is_bgzf = true;
-    } else {
-      assert(!self._is_bgzf);
-    }
+    assert(sz>=0);
   });
   file_size_fut = file_size_fut.then([&self = *this]() { self.know_file_size.fulfill_anonymous(1); });
 
@@ -394,14 +354,13 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
 
 future<> FastqReader::set_matching_pair(FastqReader &fqr1, FastqReader &fqr2, dist_object<PromStartStop> &dist_start_stop1,
                                         dist_object<PromStartStop> &dist_start_stop2) {
-  if (fqr1._is_bgzf || fqr2._is_bgzf) SDIE("FIXME - Unsupported paired files in BGZF gzip format -- they must be interleaved!");
 
   DBG("Starting matching pair ", fqr1.start_read, " and ", fqr2.start_read, "\n");
   assert(fqr1.in && "FQ 1 is open");
   assert(fqr2.in && "FQ 2 is open");
   assert(fqr1.start_read == fqr1.tellg() && "fqr1 is at the naive start");
   assert(fqr2.start_read == fqr2.tellg() && "fqr2 is at the naive start");
-  // disable subsampling temporaritly
+  // disable subsampling temporarily
   auto old_subsample = fqr1.subsample_pct;
   assert(fqr2.subsample_pct == old_subsample);
   fqr1.subsample_pct = 100;
@@ -483,6 +442,7 @@ future<> FastqReader::set_matching_pair(FastqReader &fqr1, FastqReader &fqr2, di
   });
   auto fut2 = dist_start_stop2->set(fqr2).then([&fqr2]() { fqr2.seek_start(); });
   return when_all(fut1, fut2).then([&fqr1, &fqr2, old_subsample]() {
+    // restore subsampling
     fqr1.subsample_pct = old_subsample;
     fqr2.subsample_pct = old_subsample;
     DBG("Found matching pair ", fqr1.start_read, " and ", fqr2.start_read, "\n");
@@ -503,12 +463,6 @@ upcxx::future<> FastqReader::continue_open() {
 
   io_t.start();
   if (!in) {
-    /* FIXME BGZF
-    if (_is_bgzf)
-      in.reset((zstr::base_ifstream *)new zstr::bgzf_ifstream(fname));
-    else
-      in.reset((zstr::base_ifstream *)new zstr::ifstream(fname));  // works fine for uncompressed files too
-    */
     in.reset(new ifstream(fname));
     LOG("Opened ", fname, " in ", io_t.get_elapsed_since_start(), "s.\n");
   }
@@ -558,12 +512,6 @@ upcxx::future<> FastqReader::continue_open_default_per_rank_boundaries() {
   set_block(sz * rank_me(), sz);
   io_t.start();
   if (!in) {
-    /* FIXME BGZF
-    if (_is_bgzf)
-      in.reset((zstr::base_ifstream *)new zstr::bgzf_ifstream(fname));
-    else
-      in.reset((zstr::base_ifstream *)new zstr::ifstream(fname));  // works fine for uncompressed files too
-    */
     in.reset(new ifstream(fname));
   }
   if (!in) {
@@ -589,7 +537,6 @@ upcxx::future<> FastqReader::continue_open_default_per_rank_boundaries() {
     // do all the fseeking for the local team
     using DPSS = dist_object<PromStartStop>;
     int64_t file_bytes = file_size;
-    // FIXME BGZF if (_is_bgzf) file_bytes = zstr::bgzf_virtual_file_pointer::from_int_id(file_size).get_file_offset();
     int64_t read_block = INT_CEIL(file_bytes, rank_n());
     auto first_rank = rank_me() + 1 - local_team().rank_n();
     for (auto rank = first_rank; rank < first_rank + local_team().rank_n(); rank++) {
@@ -600,12 +547,6 @@ upcxx::future<> FastqReader::continue_open_default_per_rank_boundaries() {
       }
       assert(rank > 0);
       auto pos = block_start;
-      /* FIXME BGZF
-      if (_is_bgzf) {
-        zstr::bgzf_ifstream *bgzf_ifs = dynamic_cast<zstr::bgzf_ifstream *>(in.get());
-        pos = bgzf_ifs->find_next_bgzf_block(pos).to_int_id();
-      }
-      */
       pos = get_fptr_for_next_record(block_start);
       DBG_VERBOSE("Notifying with rank=", rank, " pos=", pos, " after block_start=", block_start, "\n");
       wait_prom.get_future().then([rank, pos, &dist_prom = this->dist_prom]() {
@@ -692,18 +633,9 @@ string FastqReader::get_fname() { return fname; }
 
 size_t FastqReader::my_file_size() {
   size_t size = 0;
-  if (_is_bgzf) {
-    /* FIXME BGZF
-    // start_read & end_read are not exact counts.  Use the compressed sizes
-    size = zstr::bgzf_virtual_file_pointer::from_int_id(end_read).get_file_offset() -
-           zstr::bgzf_virtual_file_pointer::from_int_id(start_read).get_file_offset();
-    */
-    DIE("!");
-  } else {
-    size = end_read - start_read;
-  }
+  size = end_read - start_read;
   if (fqr2) size += fqr2->my_file_size();
-  DBG("my_file_size=", size, " fname=", fname, "\n");
+  DBG2("my_file_size=", size, " fname=", fname, "\n");
   return size;
 }
 
