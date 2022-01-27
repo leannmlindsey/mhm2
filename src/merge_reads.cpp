@@ -325,6 +325,8 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
                  vector<PackedReads *> &packed_reads_list, bool checkpoint, const string &adapter_fname, int min_kmer_len) {
   BarrierTimer timer(__FILEFUNC__);
   Timer merge_time(__FILEFUNC__ + " merging all");
+  string fake_qual;
+  fake_qual += (char) qual_offset;
 
   adapter_hash_table_t adapters;
   StripedSmithWaterman::Aligner ssw_aligner(ALN_MATCH_SCORE, ALN_MISMATCH_COST, ALN_GAP_OPENING_COST, ALN_GAP_EXTENDING_COST,
@@ -413,11 +415,11 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         bytes_read += bytes_read1;
         progbar.update(bytes_read);
         packed_reads_list[ri]->add_read("r" + to_string(read_id) + "/1", seq1, quals1);
-        packed_reads_list[ri]->add_read("r" + to_string(read_id) + "/2", "N", to_string((char)qual_offset));
+        packed_reads_list[ri]->add_read("r" + to_string(read_id) + "/2", "N", fake_qual);
         read_id += 2;
         if (checkpoint) {
           *sh_out_file << "@r" << read_id << "/1\n" << seq1 << "\n+\n" << quals1 << "\n";
-          *sh_out_file << "@r" << read_id << "/2\nN\n+\n" << (char)qual_offset << "\n";
+          *sh_out_file << "@r" << read_id << "/2\nN\n+\n" << fake_qual << "\n";
         }
         continue;
       }
@@ -436,9 +438,10 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         id1 = tmp_id;
         seq1 = tmp_seq;
         quals1 = tmp_quals;
-        skip_read1 = false;
         tmp_id.clear();
+        skip_read1 = false;
       }
+      id2.clear();
 
       if (id1.length() > 2 && id1[id1.length() - 1] == '1') {
         skip_read2 = false;
@@ -454,7 +457,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         // generate a fake read1
         id1[id1.length()-1] = '1';
         seq1 = "N";
-        quals1 = to_string((char)qual_offset);
+        quals1 = fake_qual;
         skip_read2 = true;
       }
 
@@ -463,6 +466,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         if (!bytes_read2) {
           // record missing read2
           id2.clear();
+          skip_read1 = skip_read2 = true;
         }
         DBG("Read2: ", id2, " ", seq2.length(), "\n");
         bytes_read += bytes_read2;
@@ -470,15 +474,17 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
       } else {
         skip_read2 = false;
       }
+      
+      
       if (id2.length() > 2 && id2[id2.length()-1] == '2' && id1.compare(0, id1.length() - 1, id2, 0, id2.length() - 1) == 0) {
         skip_read1 = false;
       } else {
-        if (skip_read1) break; // end of file
+        if (skip_read1 && (skip_read2 || id2.empty())) break; // end of file
         assert(id2.empty() || id2[id2.length()-1] == '1' || id2[id2.length()-1] == '2'); // can miss both this read2 and the next read1, getting the next read2
         DBG("Missing read2, faking it\n");
         // got read1 : missing read2 of expected pair! (Issue 117 to be robust to this missing read)
         missing_read2++;
-        // preserve this as the *next* read1
+        // preserve this as the *next* read1 (may actually be a read2)
         assert(tmp_id.empty());
         tmp_id = id2;
         tmp_seq = seq2;
@@ -488,7 +494,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         id2 = id1;
         id2[id2.length()-1] = '2';
         seq2 = "N";
-        quals2 = to_string((char)qual_offset);
+        quals2 = fake_qual;
         skip_read1 = true;
       }
 
@@ -670,10 +676,10 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         overlap_len += overlap;
 
         packed_reads_list[ri]->add_read("r" + to_string(read_id) + "/1", seq1, quals1);
-        packed_reads_list[ri]->add_read("r" + to_string(read_id) + "/2", "N", to_string((char)qual_offset));
+        packed_reads_list[ri]->add_read("r" + to_string(read_id) + "/2", "N", fake_qual);
         if (checkpoint) {
           *sh_out_file << "@r" << read_id << "/1\n" << seq1 << "\n+\n" << quals1 << "\n";
-          *sh_out_file << "@r" << read_id << "/2\nN\n+\n" << (char)qual_offset << "\n";
+          *sh_out_file << "@r" << read_id << "/2\nN\n+\n" << fake_qual << "\n";
         }
       }
       if (!is_merged) {
