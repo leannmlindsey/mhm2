@@ -299,7 +299,9 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
       fname = fname.substr(0, pos);
     }
   }
-  if (!rank_me()) {
+  static int rotate_rank = 0;
+  int query_rank = rotate_rank++ % rank_n();
+  if (rank_me() == query_rank) {
     // only one rank gets the file size, to prevent many hits on metadata
     io_t.start();
     file_size = upcxx_utils::get_file_size(fname);
@@ -309,7 +311,7 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
     DBG("Found file_size=", file_size, " for ", fname, "\n");
   }
 
-  future<> file_size_fut = upcxx::broadcast(file_size, 0).then([&self = *this](int64_t sz) {
+  future<> file_size_fut = upcxx::broadcast(file_size, query_rank).then([&self = *this](int64_t sz) {
     self.file_size = sz;
     assert(sz>=0);
   });
@@ -455,7 +457,7 @@ upcxx::future<> FastqReader::continue_open() {
   // use custome block start and block_size
   if (block_size == 0) {
     // this rank does not read this file
-    LOG("This rank will not read ", fname, "\n");
+    DBG("This rank will not read ", fname, "\n");
     dist_prom->start_prom.fulfill_result(file_size);
     dist_prom->stop_prom.fulfill_result(file_size);
     return dist_prom->set(*this);

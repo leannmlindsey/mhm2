@@ -101,7 +101,7 @@ static pair<uint64_t, int> estimate_num_reads(vector<string> &reads_fname_list, 
   int64_t my_estimated_total_records = 0;
   int64_t estimated_total_records = 0;
   std::vector<int> file_bytes_per_record(reads_fname_list.size(), 0);
-  FastqReaders::open_all_global_blocking(reads_fname_list);
+  
   for (auto const &reads_fname : reads_fname_list) {
     // assume this rank will not read this file
     size_t my_file_size = 0;
@@ -660,24 +660,23 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
                                    reduce_one(num_ambiguous, op_fast_add, 0), reduce_one(merged_len, op_fast_add, 0),
                                    reduce_one(overlap_len, op_fast_add, 0), reduce_one(max_read_len, op_fast_max, 0),
                                    reduce_one(bases_trimmed, op_fast_add, 0), reduce_one(reads_removed, op_fast_add, 0),
-                                   reduce_one(bases_read, op_fast_add, 0));
+                                   reduce_one(bases_read, op_fast_add, 0), reduce_one(bytes_read, op_fast_add, 0));
     fut_summary = when_all(fut_summary, fut_reductions)
                       .then([reads_fname, bytes_read, adapters](
                                 int64_t all_num_pairs, int64_t all_num_merged, int64_t all_num_ambiguous, int64_t all_merged_len,
                                 int64_t all_overlap_len, int all_max_read_len, int64_t all_bases_trimmed, int64_t all_reads_removed,
-                                int64_t all_bases_read) {
+                                int64_t all_bases_read, int64_t all_bytes_read) {
                         SLOG_VERBOSE("Merged reads in file ", reads_fname, ":\n");
                         SLOG_VERBOSE("  merged ", perc_str(all_num_merged, all_num_pairs), " pairs\n");
                         SLOG_VERBOSE("  ambiguous ", perc_str(all_num_ambiguous, all_num_pairs), " ambiguous pairs\n");
                         SLOG_VERBOSE("  average merged length ", (double)all_merged_len / all_num_merged, "\n");
                         SLOG_VERBOSE("  average overlap length ", (double)all_overlap_len / all_num_merged, "\n");
-                        SLOG_VERBOSE("  max read length ", all_max_read_len, "\n");
                         if (!adapters.empty()) {
                           SLOG_VERBOSE("  adapter bases trimmed ", perc_str(all_bases_trimmed, all_bases_read), "\n");
                           SLOG_VERBOSE("  adapter reads removed ", perc_str(all_reads_removed, all_num_pairs * 2), "\n");
                         }
                         SLOG_VERBOSE("  max read length ", all_max_read_len, "\n");
-                        SLOG_VERBOSE("Total bytes read ", bytes_read, "\n");
+                        SLOG_VERBOSE("Rank0 bytes read ", bytes_read, " of ", all_bytes_read, "\n");
                       });
 
     num_reads += num_pairs * 2;
