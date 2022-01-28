@@ -771,6 +771,16 @@ bool FastqReaders::is_open(const string fname) {
   return it != me.readers.end() && it->second->is_open();
 }
 
+size_t FastqReaders::get_open_file_size(const string fname) {
+  assert(is_open(fname));
+  FastqReaders &me = getInstance();
+  auto it = me.readers.find(fname);
+  assert(it != me.readers.end());
+  auto fut_sz = it->second->get_file_size();
+  assert(fut_sz.ready());
+  return fut_sz.wait();
+}
+
 FastqReader &FastqReaders::open(const string fname, int subsample_pct, upcxx::future<> first_wait) {
   FastqReaders &me = getInstance();
   auto it = me.readers.find(fname);

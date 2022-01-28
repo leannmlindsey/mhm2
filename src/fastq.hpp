@@ -167,37 +167,52 @@ class FastqReaders {
 
   static bool is_open(const string fname);
 
+  static size_t get_open_file_size(const string fname);
+
   static FastqReader &open(const string fname, int subsample_pct = 100, upcxx::future<> first_wait = make_future());
 
+  // returns the total global size
   template <typename Container>
-  static void open_all(Container &fnames, int subsample_pct = 100) {
+  static size_t open_all(Container &fnames, int subsample_pct = 100) {
     DBG("Open all ", fnames.size(), " files\n");
-    open_all_global_blocking(fnames, subsample_pct);
+    return open_all_global_blocking(fnames, subsample_pct);
   }
 
+  // returns the total global size
   template <typename Container>
-  static void open_all_file_blocking(Container &fnames, int subsample_pct = 100) {
+  static size_t open_all_file_blocking(Container &fnames, int subsample_pct = 100) {
     // every rank opens a partition of every file
     assert(subsample_pct > 0 && subsample_pct <= 100);
+    auto fut_chain = make_future();
+    size_t total_size = 0;
     for (string &fname : fnames) {
-      open(fname, subsample_pct);
+      FastqReader &fqr = open(fname, subsample_pct);
+      fut_chain = when_all(fut_chain, fqr.get_file_size().then([&total_size](int64_t sz) { total_size += sz; }));
     }
+    fut_chain.wait();
+    return total_size;
   }
 
+  // returns the total global size
   template <typename Container>
-  static void open_all_global_blocking(Container &fnames, int subsample_pct = 100) {
+  static size_t open_all_global_blocking(Container &fnames, int subsample_pct = 100) {
     // opens only some files and reads a partition, as if the entire set of files is one single concatented file
 
     // all files need to be opened together.  Verify either all or none are open
     bool needs_blocking = false;
+    size_t total_size = 0;
     for (string &fname : fnames) {
-      if (!is_open(fname)) needs_blocking = true;
+      if (!is_open(fname)) {
+        needs_blocking = true;
+      } else {
+        total_size += get_open_file_size(fname);
+      }
     }
-    if (!needs_blocking) return;  // all are open
+    if (!needs_blocking) return total_size;  // all are open
+    total_size = 0; // some are not open yet
 
     std::vector<promise<>> know_blocks(fnames.size());
     std::vector<int64_t> file_sizes(fnames.size());
-    int64_t total_size = 0;
     assert(subsample_pct > 0 && subsample_pct <= 100);
     int filenum = 0;
     upcxx::future<> chain_fut = make_future();
@@ -313,6 +328,7 @@ class FastqReaders {
 
     // block and wait with variables still in scope
     chain_fut.wait();
+    return total_size;
   }
 
   static FastqReader &get(const string fname);
