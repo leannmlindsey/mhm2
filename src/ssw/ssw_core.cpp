@@ -865,9 +865,24 @@ static cigar *banded_sw(const int8_t * ref,
     int32_t i, j, e, f, temp1, temp2, s = 16, s1 = 8, l, max = 0;
     int64_t s2 = 1024;
     char op, prev_op;
-    int32_t width, width_d, *h_b, *e_b, *h_c;
+    int32_t max_bw, width, width_d, *h_b, *e_b, *h_c;
     int8_t *direction, *direction_line;
     cigar *result = (cigar *) malloc(sizeof (cigar));
+
+    if (band_width >= 3 || 2 * band_width >= s2 / ((readLen*3)-1) ) {
+        // Avoid unnecessary reallocs in first iteration
+        width = band_width * 2 + 3, width_d = band_width * 2 + 1;
+        while (width >= s1) {
+            ++s1;
+            kroundup32(s1);
+        }
+        while (width_d * readLen * 3 >= s2) {
+            ++s2;
+            kroundup32(s2);
+        }
+        direction = direction_line = nullptr;
+    }
+    max_bw = readLen > refLen ? refLen : readLen;
 
     h_b = (int32_t *) malloc(s1 * sizeof (int32_t));
     e_b = (int32_t *) malloc(s1 * sizeof (int32_t));
@@ -945,6 +960,7 @@ static cigar *banded_sw(const int8_t * ref,
                 h_b[j] = h_c[j];
             }
         }
+        if (UNLIKELY(band_width > max_bw)) break; // Hack to fix Issue
         band_width *= 2;
     } while (LIKELY(max < score));
     band_width /= 2;
