@@ -240,13 +240,13 @@ TEST(MHMTest, AdeptSW) {
   size_t total_mem;
 #ifdef ENABLE_GPUS
   gpu_utils::initialize_gpu(time_to_initialize, 0);
-//  if (device_count > 0) {
-//    EXPECT_TRUE(total_mem > 32 * 1024 * 1024);  // >32 MB
-//  }
+  //  if (device_count > 0) {
+  //    EXPECT_TRUE(total_mem > 32 * 1024 * 1024);  // >32 MB
+  //  }
 
   double init_time = 0;
   adept_sw::GPUDriver gpu_driver(0, 1, (short)aln_scoring.match, (short)-aln_scoring.mismatch, (short)-aln_scoring.gap_opening,
-                                   (short)-aln_scoring.gap_extending, 300, init_time);
+                                 (short)-aln_scoring.gap_extending, 300, init_time);
   std::cout << "Initialized gpu in " << time_to_initialize << "s and " << init_time << "s\n";
 #endif
 
@@ -424,4 +424,40 @@ TEST(MHMTest, AdeptSW) {
   check_alns_gpu(alns, qstarts, qends, rstarts, rends);
   // cuda tear down happens in driver destructor
 #endif
+}
+
+TEST(MHMTest, Issue118) {
+  /* From stacktrace:
+  [14] #9  0x00000000107a864c in banded_sw (ref=0x200f6c71926c "\001\001\002", read=0x200f6c71a39c "\001\001\002", refLen=138,
+  readLen=138, score=248, weight_gapO=4, weight_gapE=2, band_width2=1 , mat=0x4a93aba0
+  "\002\374\374\374\377\374\002\374\374\377\374\374\002\374\377\374\374\374\002\377\377\377\377\377\377", n=5) at
+  /ccs/home/rsegan/workspace/mhm2/src/ssw/ssw_core.cpp:943 [14] #10 0x00000000107a9bcc in ssw_align (prof=0x200f6c361ab0,
+  ref=0x200f6c719260 "", refLen=138, weight_gapO=4 '\004', weight_gapE=2 '\002', flag=15 '\017', filters=0, filterd=32767, maskLen=
+  75) at /ccs/home/rsegan/workspace/mhm2/src/ssw/ssw_core.cpp:1212
+  [14] #11 0x00000000107a2b98 in StripedSmithWaterman::Aligner::Align (this=0x7fffe6dccb60, query=0x4b9156c0
+  "AGCGGTGAATCGCCGATCGAGACGGTGCCGCCCGACGCCCGCACCACGCCTGCGACGATCGCGAGCCCCAGGCCGCTGCCCCCG
+  GCATCCCTCGCCCGTCCTTCGTCGAGGCGAACGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC", query_len=@0x200f68cddc6c: 150, ref=0x4b915760
+  "AGCGGTCACTATCCGATCGAGACGGTGCCGCGCGACGCCCGCACCACGCCTGCGACGTTCGCGAGCCCCAGGCCG
+  CTGCCCCCGGCATCCCTCGACCGTCCTTAGTCGAGGCTAACGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC", ref_len=@0x200f68cddc68: 150, filter=...,
+  alignment=0x200f68cddc70, maskLen=75) at /ccs/home/rsegan/workspace/mhm2 /src/ssw/ssw.cpp:457 [14] #12 0x0000000010c054f4 in
+  CPUAligner::ssw_align_read (ssw_aligner=..., ssw_filter=..., alns=0x6b92bdd0, aln_scoring=..., aln=..., cseq=..., rseq=...,
+  read_group_id=0) at /ccs/home/rsegan/ workspace/mhm2/src/klign/aligner_cpu.cpp:169
+  */
+
+  Alns alns;
+  Aln aln[10] = {};
+  string query, ref;
+
+  query = string("AGCGGTGAATCGCCGATCGAGACGGTGCCGCCCGACGCCCGCACCACGCCTGCGACGATCGCGAGCCCCAGGCCGCTGCCCCCGGCATCCCTCGCCCGTCCTTCGTCGAGGCG"
+                 "AACGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC");
+  ref = string("AGCGGTCACTATCCGATCGAGACGGTGCCGCGCGACGCCCGCACCACGCCTGCGACGTTCGCGAGCCCCAGGCCGCTGCCCCCGGCATCCCTCGACCGTCCTTAGTCGAGGCTAA"
+               "CGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC");
+
+  aln[0] = Aln("a", 0, 0, query.size()-1, query.size(), 0, ref.size()-1, ref.size(), '+',  0, 0, 0, 0, -1);
+
+  CPUAligner::ssw_align_read(ssw_aligner_cigar, ssw_filter_cigar, &alns, cigar_aln_scoring, aln[0], string_view(ref),
+                             string_view(query), 0);
+  aln[1] = Aln("a", 0, 0, ref.size()-1, ref.size(), 0, query.size()-1, query.size(), '+',  0, 0, 0, 0, -1);
+  CPUAligner::ssw_align_read(ssw_aligner_cigar, ssw_filter_cigar, &alns, cigar_aln_scoring, aln[1], string_view(query),
+                             string_view(ref), 0);
 }
