@@ -960,8 +960,8 @@ static cigar *banded_sw(const int8_t * ref,
                 h_b[j] = h_c[j];
             }
         }
-        if (UNLIKELY(band_width > max_bw)) break; // Hack to fix Issue
         band_width *= 2;
+        if (UNLIKELY(band_width > 2 * max_bw)) break; // Hack to fix Issue118
     } while (LIKELY(max < score));
     band_width /= 2;
 

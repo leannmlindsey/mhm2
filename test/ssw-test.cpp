@@ -448,10 +448,8 @@ TEST(MHMTest, Issue118) {
   Aln aln[10] = {};
   string query, ref;
 
-  query = string("AGCGGTGAATCGCCGATCGAGACGGTGCCGCCCGACGCCCGCACCACGCCTGCGACGATCGCGAGCCCCAGGCCGCTGCCCCCGGCATCCCTCGCCCGTCCTTCGTCGAGGCG"
-                 "AACGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC");
-  ref = string("AGCGGTCACTATCCGATCGAGACGGTGCCGCGCGACGCCCGCACCACGCCTGCGACGTTCGCGAGCCCCAGGCCGCTGCCCCCGGCATCCCTCGACCGTCCTTAGTCGAGGCTAA"
-               "CGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC");
+  query = string("AGCGGTGAATCGCCGATCGAGACGGTGCCGCCCGACGCCCGCACCACGCCTGCGACGATCGCGAGCCCCAGGCCGCTGCCCCCGGCATCCCTCGCCCGTCCTTCGTCGAGGCGAACGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC");
+  ref =   string("AGCGGTCACTATCCGATCGAGACGGTGCCGCGCGACGCCCGCACCACGCCTGCGACGTTCGCGAGCCCCAGGCCGCTGCCCCCGGCATCCCTCGACCGTCCTTAGTCGAGGCTAACGAAGCGTTCGAACACCCGCTCTCGCTCCGAGGCC");
 
   aln[0] = Aln("a", 0, 0, query.size()-1, query.size(), 0, ref.size()-1, ref.size(), '+',  0, 0, 0, 0, -1);
 
@@ -459,5 +457,28 @@ TEST(MHMTest, Issue118) {
                              string_view(query), 0);
   aln[1] = Aln("a", 0, 0, ref.size()-1, ref.size(), 0, query.size()-1, query.size(), '+',  0, 0, 0, 0, -1);
   CPUAligner::ssw_align_read(ssw_aligner_cigar, ssw_filter_cigar, &alns, cigar_aln_scoring, aln[1], string_view(query),
+                             string_view(ref), 0);
+
+
+/*
+[20] #8  <signal handler called>
+[20] #9  0x00000000107a12a8 in (anonymous namespace)::ConvertAlignment (s_al=..., query_len=@0x200f68cddc5c: 150, al=0x200f68cddc60) at /ccs/home/rsegan/workspace/mhm2/src/ssw/ssw.cpp:60
+[20] #10 0x00000000107a2bc0 in StripedSmithWaterman::Aligner::Align (this=0x7fffd8932ac0, query=0x56a4cf70 "CAAGTCAACAAACGTAAAGTGATGGGTATGTTCTGACTCTTTGATTTTAAATTTCGAAATCTGAGCTTTTTGGGGGATGTGGCG
+TGTGAAAGCAGCTAAATCATTCCTCCCACTCAAATTTCAGGCAACGCCATTGAGTACAGGTTGTGA", query_len=@0x200f68cddc5c: 150, ref=0x555f4830 "CCAATCAACACGCATAAAGTGATGGAGCGGTTCTGATCCCTTGGTTTAAAATTTCGAAATCTGAGCTTTTCGAGG
+GATGTGACTTGCGAAAGCAGCTAAATAATTCCTCCCGCTCAAATTTCAGGCAACGCCATTGAGTACAGGTTGTGA", ref_len=@0x200f68cddc58: 150, filter=..., alignment=0x200f68cddc60, maskLen=75) at /ccs/home/rsegan/workspace/mhm2
+/src/ssw/ssw.cpp:463
+[20] #11 0x0000000010c05394 in CPUAligner::ssw_align_read (ssw_aligner=..., ssw_filter=..., alns=0x76e32000, aln_scoring=..., aln=..., cseq=..., rseq=..., read_group_id=0) at /ccs/home/rsegan/
+workspace/mhm2/src/klign/aligner_cpu.cpp:169
+[20] #12 0x0000000010c05a54 in CPUAligner::<lambda()>::operator()(void) const (__closure=0x7569a2f8) at /ccs/home/rsegan/workspace/mhm2/src/klign/aligner_cpu.cpp:207
+*/
+
+  query = string("CAAGTCAACAAACGTAAAGTGATGGGTATGTTCTGACTCTTTGATTTTAAATTTCGAAATCTGAGCTTTTTGGGGGATGTGGCGTGTGAAAGCAGCTAAATCATTCCTCCCACTCAAATTTCAGGCAACGCCATTGAGTACAGGTTGTGA");
+  ref =   string("CCAATCAACACGCATAAAGTGATGGAGCGGTTCTGATCCCTTGGTTTAAAATTTCGAAATCTGAGCTTTTCGAGGGATGTGACTTGCGAAAGCAGCTAAATAATTCCTCCCGCTCAAATTTCAGGCAACGCCATTGAGTACAGGTTGTGA");
+  aln[2] = Aln("a", 0, 0, query.size()-1, query.size(), 0, ref.size()-1, ref.size(), '+',  0, 0, 0, 0, -1);
+
+  CPUAligner::ssw_align_read(ssw_aligner_cigar, ssw_filter_cigar, &alns, cigar_aln_scoring, aln[2], string_view(ref),
+                             string_view(query), 0);
+  aln[3] = Aln("a", 0, 0, ref.size()-1, ref.size(), 0, query.size()-1, query.size(), '+',  0, 0, 0, 0, -1);
+  CPUAligner::ssw_align_read(ssw_aligner_cigar, ssw_filter_cigar, &alns, cigar_aln_scoring, aln[3], string_view(query),
                              string_view(ref), 0);
 }
