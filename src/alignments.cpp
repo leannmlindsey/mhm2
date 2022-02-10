@@ -123,7 +123,7 @@ bool Aln::is_valid() const {
   assert(cstart >= 0 && "cstart >= 0");
   assert(cstop <= clen && "cstop <= clen");
 
-  return read_group_id >= 0 && (orient == '+' || orient == '-') && mismatches >= 0 && mismatches <= rlen && identity >= 0 &&
+  return read_group_id >= 0 && (orient == '+' || orient == '-') && mismatches >= 0 && identity >= 0 &&
          identity <= 100 && cid >= 0 && read_id.size() > 0;
 }
 
