@@ -716,10 +716,16 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
   int read_group_id = 0;
   HASH_TABLE<Kmer<MAX_K>, vector<KmerToRead>> kmer_read_map;
   kmer_read_map.reserve(KLIGN_CTG_FETCH_BUF_SIZE);
+  int64_t total_local_reads = 0;
   for (auto packed_reads : packed_reads_list) {
     packed_reads->reset();
+    total_local_reads += packed_reads->get_local_num_reads();
+  }
+  ProgressBar progbar(total_local_reads, "Aligning reads to contigs");
+  for (auto packed_reads : packed_reads_list) {
+    BaseTimer align_file_timer("Align " + packed_reads->get_fname());
+    if (packed_reads->get_local_num_reads() > 0) align_file_timer.start();
     string read_id, read_seq, quals;
-    ProgressBar progbar(packed_reads->get_local_num_reads(), "Aligning reads to contigs");
     vector<ReadRecord *> read_records;
     vector<Kmer<MAX_K>> kmers;
     while (true) {
@@ -771,9 +777,14 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
     assert(read_records.empty());
     assert(kmer_read_map.empty());
     aligner.flush_remaining(read_group_id);
+    if (packed_reads->get_local_num_reads() > 0) align_file_timer.stop();
+    auto fut = align_file_timer.reduce_timings().then([](ShTimings sh_align_file_timings) {
+      SLOG_VERBOSE("Alignment timings: ", sh_align_file_timings->to_string(true, true), "\n");
+    });
+    all_done = when_all(all_done, fut);
     read_group_id++;
-    all_done = when_all(all_done, progbar.set_done());
   }
+  all_done = when_all(all_done, progbar.set_done());
   // free some memory
   HASH_TABLE<Kmer<MAX_K>, vector<KmerToRead>>().swap(kmer_read_map);
 

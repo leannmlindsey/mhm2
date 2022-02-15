@@ -158,6 +158,8 @@ void kernel_align_block(CPUAligner &cpu_aligner, vector<Aln> &kernel_alns, vecto
     // for now, the GPU alignment doesn't support cigars
     if (!cpu_aligner.ssw_filter.report_cigar && gpu_utils::gpus_present()) {
       active_kernel_fut = gpu_align_block(aln_block_data, alns, cpu_aligner.ssw_filter.report_cigar, aln_kernel_timer);
+    } else if (!gpu_utils::gpus_present()) {
+      active_kernel_fut = cpu_aligner.ssw_align_block(aln_block_data, alns);
     } else {
 #ifdef __PPC64__
       SWARN("FIXME Issue #49,#60 no cigars for gpu alignments\n");

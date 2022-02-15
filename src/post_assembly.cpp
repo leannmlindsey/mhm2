@@ -45,6 +45,7 @@
 #include "post_assembly.hpp"
 
 #include "aln_depths.hpp"
+#include "fastq.hpp"
 #include "gasnet_stats.hpp"
 #include "histogrammer.hpp"
 #include "klign.hpp"
@@ -64,14 +65,21 @@ void post_assembly(int kmer_len, Contigs &ctgs, shared_ptr<Options> options, int
   SLOG(KBLUE, "_________________________", KNORM, "\n");
   SLOG(KBLUE, "Post processing", KNORM, "\n\n");
   vector<PackedReads *> packed_reads_list;
+  FastqReaders::open_all_global_blocking(options->reads_fnames);
   for (auto const &reads_fname : options->reads_fnames) {
     packed_reads_list.push_back(new PackedReads(options->qual_offset, reads_fname, true));
   }
   stage_timers.cache_reads->start();
   double free_mem = (!rank_me() ? get_free_mem() : 0);
-  upcxx::barrier();
-  for (auto packed_reads : packed_reads_list) {
-    packed_reads->load_reads();
+  {
+    BarrierTimer bt("Load post-assembly reads");
+    future<> fut_chain = make_future();
+    for (auto packed_reads : packed_reads_list) {
+      auto fut = packed_reads->load_reads_nb();
+      fut_chain = when_all(fut_chain, fut);
+      progress();
+    }
+    fut_chain.wait();
   }
   stage_timers.cache_reads->stop();
   unsigned rlen_limit = 0;
