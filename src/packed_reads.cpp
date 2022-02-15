@@ -54,7 +54,6 @@
 #include "upcxx_utils/mem_profile.hpp"
 #include "upcxx_utils/progress_bar.hpp"
 #include "upcxx_utils/timers.hpp"
-#include "zstr.hpp"
 
 using std::string;
 using std::string_view;
@@ -273,9 +272,13 @@ upcxx::future<> PackedReads::load_reads_nb() {
     if (!bytes_read) break;
     tot_bytes_read += bytes_read;
   }
-  int64_t bytes_per_record = num_records == 0 ? 0 : tot_bytes_read / num_records;
-  int64_t estimated_records = bytes_per_record == 0 ? 0 : fqr.my_file_size() / bytes_per_record;
-  int64_t reserve_records = estimated_records * 1.10 + 10000;  // reserve more so there is not a big reallocation if it is under
+  int64_t reserve_records = 0;
+  int64_t estimated_records = 0;
+  if (num_records > 0) {
+    int64_t bytes_per_record = tot_bytes_read / num_records;
+    estimated_records = fqr.my_file_size() / bytes_per_record;
+    reserve_records = estimated_records * 1.10 + 10000;  // reserve more so there is not a big reallocation if it is under
+  }
   packed_reads.reserve(reserve_records);
   fqr.reset();
   ProgressBar progbar(fqr.my_file_size(), "Loading reads from " + fname + " " + get_size_str(fqr.my_file_size()));
