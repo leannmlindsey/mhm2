@@ -331,3 +331,36 @@ PackedRead &PackedReads::operator[](int index) {
   if (index >= packed_reads.size()) DIE("Array index out of bound ", index, " >= ", packed_reads.size());
   return packed_reads[index];
 }
+
+uint64_t PackedReads::estimate_num_kmers(unsigned kmer_len, vector<PackedReads *> &packed_reads_list) {
+  BarrierTimer timer(__FILEFUNC__);
+  int64_t num_kmers = 0;
+  int64_t num_reads = 0;
+  int64_t tot_num_reads = 0;
+  for (auto packed_reads : packed_reads_list) {
+    tot_num_reads += packed_reads->get_local_num_reads();
+    packed_reads->reset();
+    string id, seq, quals;
+    ProgressBar progbar(packed_reads->get_local_num_reads(), "Scanning reads to estimate number of kmers");
+
+    for (int i = 0; i < 100000; i++) {
+      if (!packed_reads->get_next_read(id, seq, quals)) break;
+      progbar.update();
+      // do not read the entire data set for just an estimate
+      if (seq.length() < kmer_len) continue;
+      num_kmers += seq.length() - kmer_len + 1;
+      num_reads++;
+    }
+    progbar.done();
+    barrier();
+  }
+  DBG("This rank processed ", num_reads, " reads, and found ", num_kmers, " kmers\n");
+  auto all_num_reads = reduce_one(num_reads, op_fast_add, 0).wait();
+  auto all_tot_num_reads = reduce_one(tot_num_reads, op_fast_add, 0).wait();
+  auto all_num_kmers = reduce_all(num_kmers, op_fast_add).wait();
+
+  SLOG_VERBOSE("Processed ", perc_str(all_num_reads, all_tot_num_reads), " reads, and estimated a maximum of ",
+               (all_num_reads > 0 ? all_num_kmers * (all_tot_num_reads / all_num_reads) : 0), " kmers\n");
+  return num_reads > 0 ? num_kmers * tot_num_reads / num_reads : 0;
+}
+
