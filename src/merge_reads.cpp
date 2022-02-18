@@ -836,6 +836,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
   wrote_all_files_fut = when_all(wrote_all_files_fut, prog_done);
 
   DBG("last read_id=", read_id, " last should not be > ", start_read_id + read_id_block, "\n");
+  if (read_id >= start_read_id + read_id_block) WARN("Invalid read_id=", read_id, " start_read_id=", start_read_id, " read_id_block=", read_id_block, "\n");
   assert(read_id < start_read_id + read_id_block);
   merge_time.initiate_exit_reduction();
 
