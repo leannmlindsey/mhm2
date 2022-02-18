@@ -422,6 +422,7 @@ def main():
     #argparser.add_argument("--procs-per-node", default=0, help="Processes to spawn per node (default auto-detect cores)")
     argparser.add_argument("--procs", default=0, type=int, help="Total numer of processes")
     argparser.add_argument("--gasnet-stats", action="store_true", help="Collect GASNet communication statistics")
+    argparser.add_argument("--gasnet-trace", action="store_true", help="Collect GASNet trace in separate files")
     argparser.add_argument("--preproc", default=None, help="Comma separated preprocesses and options like (valgrind,--leak-check=full) or options to upcxx-run before binary")
     argparser.add_argument("--binary", default="mhm2", help="File name for UPC++ binary (default mhm2)")
 
@@ -494,8 +495,11 @@ def main():
         #runtime_vars += ' GASNET_STATSNODES="0-%d", ' % (cores * num_nodes)
         runtime_vars += runtime_output_vars
 
+    if options.gasnet_trace:
+        runtime_vars += ' GASNET_TRACEFILE="./trace_%.txt", GASNET_TRACEMASK="U", GASNET_STATSMASK="", '
+
     runenv = eval('dict(os.environ, %s MHM2_RUNTIME_PLACEHOLDER="")' % (runtime_vars))
-    #print("Runtime environment: ", runenv)
+    print("Runtime environment: ", runenv)
 
     mhm2_lib_path = os.path.split(sys.argv[0])[0] + '/../lib'
     if not os.path.exists(mhm2_lib_path):
@@ -591,6 +595,10 @@ def main():
                         got_signal = signame
                 #err_msgs.append("ERROR: subprocess terminated with return code " + str(_proc.returncode) + " " + signame)
                 print_err_msgs(err_msgs, _proc.returncode)
+                for trace in os.listdir('.'):
+                    if 'trace_' in trace:
+                        os.rename(trace, _output_dir + "/" + trace)
+
                 if completed_round and options.auto_resume:
                     print_red('Trying to restart with output directory ', _output_dir)
                     restarting = True
