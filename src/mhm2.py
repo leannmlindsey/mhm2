@@ -499,7 +499,7 @@ def main():
         runtime_vars += ' GASNET_TRACEFILE="./trace_%.txt", GASNET_TRACEMASK="U", GASNET_STATSMASK="", '
 
     runenv = eval('dict(os.environ, %s MHM2_RUNTIME_PLACEHOLDER="")' % (runtime_vars))
-    print("Runtime environment: ", runenv)
+    #print("Runtime environment: ", runenv)
 
     mhm2_lib_path = os.path.split(sys.argv[0])[0] + '/../lib'
     if not os.path.exists(mhm2_lib_path):
