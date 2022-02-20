@@ -181,17 +181,18 @@ int main(int argc, char **argv) {
       packed_reads_list.push_back(new PackedReads(options->qual_offset, get_merged_reads_fname(reads_fname)));
     }
     double elapsed_write_io_t = 0;
-    if ((!options->restart || !options->checkpoint_merged) && !options->kmer_lens.empty()) {
+    if ((!options->restart || !options->checkpoint_merged) && options->min_kmer_len > 0) {
       // merge the reads and insert into the packed reads memory cache
       begin_gasnet_stats("merge_reads");
       stage_timers.merge_reads->start();
       merge_reads(options->reads_fnames, options->qual_offset, elapsed_write_io_t, packed_reads_list, options->checkpoint_merged,
-                  options->adapter_fname, options->kmer_lens[0], options->subsample_fastq_pct);
+                  options->adapter_fname, options->min_kmer_len, options->subsample_fastq_pct);
       stage_timers.merge_reads->stop();
       end_gasnet_stats();
     } else {
       // since this is a restart with checkpoint_merged true, the merged reads should be on disk already
       // load the merged reads instead of merge the original ones again
+      SLOG_VERBOSE("Restarting and expecting merged reads to be checkpointed on disk\n");
       stage_timers.cache_reads->start();
       double free_mem = (!rank_me() ? get_free_mem() : 0);
       upcxx::barrier();

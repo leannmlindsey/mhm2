@@ -85,6 +85,7 @@ class Options {
   vector<string> unpaired_fnames;
   string adapter_fname;
   vector<unsigned> kmer_lens = {};
+  int min_kmer_len = -1;
   int max_kmer_len = 0;
   int prev_kmer_len = 0;
   vector<unsigned> scaff_kmer_lens = {};
