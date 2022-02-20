@@ -375,8 +375,7 @@ static bool trim_adapters(StripedSmithWaterman::Aligner &ssw_aligner, StripedSmi
   time_overhead.stop();
   if (best_identity >= 0.5) {
     if (best_trim_pos < 12) best_trim_pos = 0;
-    DBG("Read ", rname, " is trimmed at ", best_trim_pos, " best identity ", best_identity, "\n", best_adapter_seq, "\n", seq,
-        "\n");
+    //DBG("Read ", rname, " is trimmed at ", best_trim_pos, " best identity ", best_identity, "\n", best_adapter_seq, "\n", seq, "\n");
     if (!best_trim_pos) reads_removed++;
     bases_trimmed += seq.length() - best_trim_pos;
     seq.resize(best_trim_pos);
@@ -486,7 +485,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
     bool skip_read1 = false, skip_read2 = false;
     for (;; num_pairs++) {
       discharge();
-      DBG_VERBOSE("Merging num_pair=", num_pairs, " read_id=", read_id, "\n");
+      //DBG_VERBOSE("Merging num_pair=", num_pairs, " read_id=", read_id, "\n");
       if (!fqr.is_paired()) {
         // unpaired reads get dummy read2 just like merged reads
         int64_t bytes_read1 = fqr.get_next_fq_record(id1, seq1, quals1);
@@ -509,14 +508,14 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
       if (!skip_read1) {
         int64_t bytes_read1 = fqr.get_next_fq_record(id1, seq1, quals1);
         if (!bytes_read1) break;  // end of file
-        DBG("Read1: ", id1, " ", seq1.length(), "\n");
+        //DBG("Read1: ", id1, " ", seq1.length(), "\n");
 
         bytes_read += bytes_read1;
         bases_read += seq1.length();
       } else {
         // use the last read as read1
         assert(!tmp_id.empty());
-        DBG("Using deferred Read1: ", tmp_id, " ", tmp_seq.length(), "\n");
+        //DBG("Using deferred Read1: ", tmp_id, " ", tmp_seq.length(), "\n");
         id1 = tmp_id;
         seq1 = tmp_seq;
         quals1 = tmp_quals;
@@ -529,7 +528,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         skip_read2 = false;
       } else {
         assert(id1.empty() || id1[id1.length() - 1] == '2');
-        DBG("Missing read1, faking it\n");
+        //DBG("Missing read1, faking it\n");
         // got read 2: missing read 1 of expected pair! (Issue 117 to be robust to this missing read)
         missing_read1++;
         // set read2
@@ -550,7 +549,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
           id2.clear();
           skip_read1 = skip_read2 = true;
         }
-        DBG("Read2: ", id2, " ", seq2.length(), "\n");
+        //DBG("Read2: ", id2, " ", seq2.length(), "\n");
         bytes_read += bytes_read2;
         bases_read += seq2.length();
       } else {
@@ -563,7 +562,7 @@ void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elaps
         if (skip_read1 && (skip_read2 || id2.empty())) break;  // end of file
         assert(id2.empty() || id2[id2.length() - 1] == '1' ||
                id2[id2.length() - 1] == '2');  // can miss both this read2 and the next read1, getting the next read2
-        DBG("Missing read2, faking it\n");
+        //DBG("Missing read2, faking it\n");
         // got read1 : missing read2 of expected pair! (Issue 117 to be robust to this missing read)
         missing_read2++;
         // preserve this as the *next* read1 (may actually be a read2)
