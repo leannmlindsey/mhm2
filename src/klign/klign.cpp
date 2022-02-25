@@ -735,14 +735,11 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
   int read_group_id = 0;
   HASH_TABLE<Kmer<MAX_K>, vector<KmerToRead>> kmer_read_map;
   kmer_read_map.reserve(KLIGN_CTG_FETCH_BUF_SIZE);
-  int64_t total_local_reads = 0;
-  for (auto packed_reads : packed_reads_list) {
-    packed_reads->reset();
-    total_local_reads += packed_reads->get_local_num_reads();
-  }
+  int64_t total_local_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
   ProgressBar progbar(total_local_reads, "Aligning reads to contigs");
   BaseTimer align_file_timer("Align all files");
   for (auto packed_reads : packed_reads_list) {
+    packed_reads->reset();
     if (packed_reads->get_local_num_reads() > 0) align_file_timer.start();
     string read_id, read_seq, quals;
     vector<ReadRecord *> read_records;

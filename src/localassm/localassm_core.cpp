@@ -342,10 +342,7 @@ void process_reads(unsigned kmer_len, vector<PackedReads *> &packed_reads_list, 
   int64_t num_read_maps_found = 0;
   future<> all_done = make_future();
   vector<CtgReadData> ctgs_to_add;
-  int64_t num_local_reads = 0;
-  for (auto packed_reads : packed_reads_list) {
-    num_local_reads += packed_reads->get_local_num_reads();
-  }
+  int64_t num_local_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
   ProgressBar progbar(num_local_reads * 2, "Processing reads - two stage");
 
   for (auto packed_reads : packed_reads_list) {

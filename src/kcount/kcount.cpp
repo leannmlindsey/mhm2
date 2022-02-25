@@ -64,11 +64,8 @@ static void count_kmers(unsigned kmer_len, int qual_offset, vector<PackedReads *
   IntermittentTimer t_pp(__FILENAME__ + string(":kmer parse and pack"));
   barrier();
   SeqBlockInserter<MAX_K> seq_block_inserter(qual_offset, kmer_dht->get_minimizer_len());
-  int64_t tot_num_local_reads = 0;
-  for (auto packed_reads : packed_reads_list) {
-    tot_num_local_reads += packed_reads->get_local_num_reads();
-  }
-  ProgressBar progbar(tot_num_local_reads, "Processing reads to count kmers");
+  int64_t total_local_num_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
+  ProgressBar progbar(total_local_num_reads, "Processing reads to count kmers");
 
   for (auto packed_reads : packed_reads_list) {
     packed_reads->reset();
