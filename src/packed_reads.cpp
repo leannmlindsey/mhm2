@@ -344,7 +344,6 @@ uint64_t PackedReads::estimate_num_kmers(unsigned kmer_len, vector<PackedReads *
   BarrierTimer timer(__FILEFUNC__);
   int64_t num_kmers = 0;
   int64_t num_reads = 0;
-  int64_t tot_num_reads = 0;
   int64_t tot_num_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
   for (auto packed_reads : packed_reads_list) {
     packed_reads->reset();

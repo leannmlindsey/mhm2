@@ -196,11 +196,11 @@ upcxx::future<> CPUAligner::ssw_align_block(shared_ptr<AlignBlockData> aln_block
   AsyncTimer t("ssw_align_block (thread)");
   static int count=0;
   count++;
-  DBG("Batching alignment to thread with ",  aln_block_data->kernel_alns.size(), " count=", count, "\n");
+  LOG("Batching alignment to thread with ",  aln_block_data->kernel_alns.size(), " count=", count, "\n");
   future<> fut = upcxx_utils::execute_in_thread_pool(
       [&ssw_aligner = this->ssw_aligner, &ssw_filter = this->ssw_filter, &aln_scoring = this->aln_scoring, aln_block_data, t, count=count]() {
         t.start();
-	DBG("Running alignment count=", count, "\n");
+	LOG("Running alignment count=", count, "\n");
         assert(!aln_block_data->kernel_alns.empty());
         DBG_VERBOSE("Starting _ssw_align_block of ", aln_block_data->kernel_alns.size(), "\n");
         auto alns_ptr = aln_block_data->alns.get();
@@ -208,12 +208,13 @@ upcxx::future<> CPUAligner::ssw_align_block(shared_ptr<AlignBlockData> aln_block
           Aln &aln = aln_block_data->kernel_alns[i];
           string &cseq = aln_block_data->ctg_seqs[i];
           string &rseq = aln_block_data->read_seqs[i];
+          DBG_VERBOSE("aligning ", i, " of ", aln_block_data->kernel_alns.size(), " ", aln.read_id, "\n");
           ssw_align_read(ssw_aligner, ssw_filter, alns_ptr, aln_scoring, aln, cseq, rseq, aln_block_data->read_group_id);
         }
         t.stop();
       });
   fut = fut.then([alns = alns, aln_block_data, t, count=count]() {
-    DBG("Finished alignment count=", count, " elapsed=", t.get_elapsed(), "\n");
+    LOG("Finished alignment count=", count, " elapsed=", t.get_elapsed(), "\n");
     SLOG_VERBOSE("Finished CPU SSW aligning block of ", aln_block_data->kernel_alns.size(), " in ", t.get_elapsed(), " s (",
                  (t.get_elapsed() > 0 ? aln_block_data->kernel_alns.size() / t.get_elapsed() : 0.0), " aln/s)\n");
     DBG_VERBOSE("appending and returning ", aln_block_data->alns->size(), "\n");

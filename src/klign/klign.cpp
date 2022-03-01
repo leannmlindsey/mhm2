@@ -521,7 +521,7 @@ class Aligner {
 
           assert(get_start >= 0);
           assert(get_start + get_len <= ctg_seq.size());
-_logger_recurse(DBG_OR_LOG_STREAM, "rget on ctg_loc cid=", ctg_loc.cid, " seq_gptr=", ctg_loc.seq_gptr, " clen=", ctg_loc.clen, " get_start=", get_start, " get_len=", get_len, " remote_mem=", ctg_loc.seq_gptr + get_start, "\n");
+          DBG_VERBOSE("rget on ctg_loc cid=", ctg_loc.cid, " seq_gptr=", ctg_loc.seq_gptr, " clen=", ctg_loc.clen, " get_start=", get_start, " get_len=", get_len, " remote_mem=", ctg_loc.seq_gptr + get_start, "\n");
           fetch_ctg_seqs_timer.start();
           // write directly to the cached string in active scope (represented by the string view, so okay to const_cast)
           rget(ctg_loc.seq_gptr + get_start, const_cast<char *>(ctg_seq.data()) + get_start, get_len).wait();
