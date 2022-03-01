@@ -66,7 +66,7 @@ using namespace upcxx_utils;
 //#define DBG_INSERT_KMER DBG
 #define DBG_INSERT_KMER(...)
 
-static int num_inserts = 0;
+static size_t num_inserts = 0;
 
 void Supermer::pack(const string &unpacked_seq) {
   // each position in the sequence is an upper or lower case nucleotide, not including Ns
@@ -104,7 +104,7 @@ void Supermer::unpack() {
 int Supermer::get_bytes() { return seq.length() + sizeof(kmer_count_t); }
 
 template <int MAX_K>
-KmerDHT<MAX_K>::KmerDHT(uint64_t my_num_kmers, int max_kmer_store_bytes, int max_rpcs_in_flight, bool useHHSS, bool use_qf)
+KmerDHT<MAX_K>::KmerDHT(uint64_t my_num_kmers, size_t max_kmer_store_bytes, int max_rpcs_in_flight, bool useHHSS, bool use_qf)
     : local_kmers({})
     , ht_inserter({})
     , kmer_store()

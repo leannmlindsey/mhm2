@@ -191,12 +191,12 @@ HashTableInserter<MAX_K>::~HashTableInserter() {
 }
 
 template <int MAX_K>
-void HashTableInserter<MAX_K>::init(int max_elems, bool use_qf) {
+void HashTableInserter<MAX_K>::init(size_t max_elems, bool use_qf) {
   this->use_qf = use_qf;
   state = new HashTableInserterState();
   double init_time;
   // calculate total slots for hash table. Reserve space for parse and pack
-  int bytes_for_pnp = KCOUNT_SEQ_BLOCK_SIZE * (2 + Kmer<MAX_K>::get_N_LONGS() * sizeof(uint64_t) + sizeof(int));
+  size_t bytes_for_pnp = KCOUNT_SEQ_BLOCK_SIZE * (2 + Kmer<MAX_K>::get_N_LONGS() * sizeof(uint64_t) + sizeof(int));
   size_t gpu_bytes_reqd = 0, ht_bytes_used = 0, qf_bytes_used = 0;
   auto init_gpu_mem = gpu_utils::get_gpu_avail_mem();
   auto gpu_avail_mem_per_rank = (get_avail_gpu_mem_per_rank() - bytes_for_pnp) * 0.9;
@@ -218,7 +218,7 @@ void HashTableInserter<MAX_K>::init(int max_elems, bool use_qf) {
 }
 
 template <int MAX_K>
-void HashTableInserter<MAX_K>::init_ctg_kmers(int max_elems) {
+void HashTableInserter<MAX_K>::init_ctg_kmers(size_t max_elems) {
   assert(state != nullptr);
   auto init_gpu_mem = gpu_utils::get_gpu_avail_mem();
   // we don't need to reserve space for either pnp or the read kmers because those have already reduced the gpu_avail_mem
