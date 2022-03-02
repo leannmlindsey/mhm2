@@ -654,7 +654,7 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
     if (kmer_lists[target_rank].empty()) continue;
     kmer_bytes_sent += kmer_lists[target_rank].size() * sizeof(Kmer<MAX_K>);
     get_ctg_count++;
-    LOG("Sending to ", target_rank, " kmer_lists.size=", kmer_lists[target_rank].size(), " get_ctg_count=", get_ctg_count, "\n");
+    DBG("Sending to ", target_rank, " kmer_lists.size=", kmer_lists[target_rank].size(), " get_ctg_count=", get_ctg_count, "\n");
     auto fut_get_ctgs = kmer_ctg_dht.get_ctgs_with_kmers(target_rank, kmer_lists[target_rank]);
     progress();
     kmer_lists[target_rank].clear();
@@ -685,7 +685,7 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
           read_record->aligned_ctgs_map.insert({kmer_ctg_loc.ctg_loc.cid, {pos_in_read, read_is_rc, kmer_ctg_loc.ctg_loc}});
         }
       }
-      LOG("Received from ", target_rank, " kmer_ctg_locs.size=", kmer_ctg_locs.size(), " kmer_bytes_received=", kmer_bytes_received, " get_ctg_count=", get_ctg_count, "\n");
+      DBG("Received from ", target_rank, " kmer_ctg_locs.size=", kmer_ctg_locs.size(), " kmer_bytes_received=", kmer_bytes_received, " get_ctg_count=", get_ctg_count, "\n");
     });
     discharge();
 

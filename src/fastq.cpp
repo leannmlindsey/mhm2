@@ -594,7 +594,7 @@ void FastqReader::advise(bool will_need) {
 }
 
 void FastqReader::set_block(int64_t start, int64_t size) {
-  LOG("set_block: file=", fname, " start=", start, " size=", size, " file_size=", file_size, "\n");
+  if (size > 0) LOG("set_block: file=", fname, " start=", start, " size=", size, " file_size=", file_size, "\n");
   block_start = start;
   block_size = size;
 }
