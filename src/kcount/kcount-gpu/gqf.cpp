@@ -34,6 +34,7 @@
 #include "gqf.hpp"
 #include "gqf_int.hpp"
 #include "gpu-utils/gpu_common.hpp"
+#include "upcxx_utils/colors.h"
 
 #include <cuda_profiler_api.h>
 
@@ -634,7 +635,9 @@ __host__ __device__ static inline uint64_t find_first_empty_slot(QF *qf, uint64_
 
   // testing without this gate to check if we see speed improvements
   if (end_start_from > bucket_start_from + 1) {
-    printf("Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
+    //fprintf(stderr, KLRED "WARNING: Find first empty ran over a bucket: %lu" KNORM "\n", end_start_from - bucket_start_from);
+    qf->metadata->failed_inserts++;
+    return qf->metadata->xnslots;
   }
 
   return from;
@@ -1639,6 +1642,7 @@ __host__ uint64_t qf_init(QF *qf, uint64_t nslots, uint64_t key_bits, uint64_t v
   qf->metadata->nelts = 0;
   qf->metadata->ndistinct_elts = 0;
   qf->metadata->noccupied_slots = 0;
+  qf->metadata->failed_inserts = 0;
 
   qf->runtimedata->num_locks = ((qf->metadata->xnslots / NUM_SLOTS_TO_LOCK) + 10) * LOCK_DIST;
 
@@ -1705,6 +1709,9 @@ __host__ void *qf_destroy(QF *qf) {
   if (qf->runtimedata->wait_times != NULL) free(qf->runtimedata->wait_times);
   if (qf->runtimedata->f_info.filepath != NULL) free(qf->runtimedata->f_info.filepath);
   free(qf->runtimedata);
+  if (qf->metadata != NULL && qf->metadata->failed_inserts > 0) {
+    fprintf(stderr, KLRED "WARNING: Insufficient memory for GQF - failed to insert %lld kmers" KNORM "\n", (long long int) qf->metadata->failed_inserts);
+  }
 
   return (void *)qf->metadata;
 }
