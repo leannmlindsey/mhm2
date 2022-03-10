@@ -1147,7 +1147,7 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
       if (empty_slot_index >= qf->metadata->xnslots) {
-        printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
+        //printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
         return QF_FULL;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -1364,7 +1364,7 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
       if (empty_slot_index >= qf->metadata->xnslots) {
-        printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
+        //printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
         return QF_NO_SPACE;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -2221,9 +2221,9 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
   int found = qf_query(qf, hash, &bigquery, QF_NO_LOCK | QF_KEY_IS_HASH);
 
   query = bigquery;
-
+  int ret = 0;
   if (found == 0)
-    qf_insert(qf, hash, encoded, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
+    ret = qf_insert(qf, hash, encoded, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
   else
     decode_chars(query, returnedfwd, returnedback);
 
@@ -2232,6 +2232,7 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
   unlock_16(qf->runtimedata->locks, lock_index);
 
   if (found == 1) return QF_ITEM_FOUND;
+  if (ret <= QF_NO_SPACE) return QF_FULL;
   return QF_ITEM_INSERTED;
 }
 
@@ -2342,7 +2343,7 @@ __global__ void insert_multi_kmer_kernel(QF *qf, uint64_t *hashes, uint8_t *firs
   char fwd;
   char back;
 
-  if (insert_kmer(qf, hashes[tid], kmer_vals[one], kmer_vals[two - 5], fwd, back)) {
+  if (insert_kmer(qf, hashes[tid], kmer_vals[one], kmer_vals[two - 5], fwd, back) >= 0) {
     atomicAdd((unsigned long long *)counter, (unsigned long long)1);
   }
 }
