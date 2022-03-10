@@ -239,6 +239,7 @@ void KmerDHT<MAX_K>::finish_updates() {
   double insert_time, kernel_time;
   ht_inserter->get_elapsed_time(insert_time, kernel_time);
   stage_timers.kernel_kmer_analysis->inc_elapsed(kernel_time);
+  LOG("Total time for local hashtables: insert_time=", insert_time, "kernel_time=", kernel_time, "\n");
 }
 
 // one line per kmer, format:

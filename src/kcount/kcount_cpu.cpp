@@ -409,6 +409,7 @@ template <int MAX_K>
 struct HashTableInserter<MAX_K>::HashTableInserterState {
   bool using_ctg_kmers = false;
   dist_object<KmerMapExts<MAX_K>> kmers;
+  upcxx_utils::BaseTimer insert_timer, kernel_timer;
 
   HashTableInserterState()
       : kmers({}) {}
@@ -450,6 +451,7 @@ void HashTableInserter<MAX_K>::init_ctg_kmers(size_t max_elems) {
 template <int MAX_K>
 void HashTableInserter<MAX_K>::insert_supermer(const std::string &supermer_seq, kmer_count_t supermer_count) {
   Supermer supermer = {.seq = supermer_seq, .count = supermer_count};
+  state->kernel_timer.start();
   for (int i = 0; i < supermer.seq.length(); i++) {
     char base = toupper(supermer.seq[i]);
     if (base != 'A' && base != 'C' && base != 'G' && base != 'T' && base != 'N')
@@ -460,6 +462,7 @@ void HashTableInserter<MAX_K>::insert_supermer(const std::string &supermer_seq, 
     insert_supermer_from_read(supermer, state->kmers);
   else
     insert_supermer_from_ctg(supermer, state->kmers);
+  state->kernel_timer.stop();
 }
 
 template <int MAX_K>
@@ -491,6 +494,7 @@ template <int MAX_K>
 void HashTableInserter<MAX_K>::insert_into_local_hashtable(dist_object<KmerMap<MAX_K>> &local_kmers) {
   BarrierTimer timer(__FILEFUNC__);
   int64_t num_good_kmers = state->kmers->size();
+  state->insert_timer.start();
   state->kmers->begin_iterate();
   while (true) {
     auto [kmer, kmer_ext_counts] = state->kmers->get_next();
@@ -522,6 +526,7 @@ void HashTableInserter<MAX_K>::insert_into_local_hashtable(dist_object<KmerMap<M
            kmer_counts.count);
     local_kmers->insert({*kmer, kmer_counts});
   }
+  state->insert_timer.stop();
   barrier();
   auto tot_num_purged = reduce_one(num_purged, op_fast_add, 0).wait();
   auto tot_num_kmers = reduce_one(state->kmers->size(), op_fast_add, 0).wait();
@@ -529,7 +534,10 @@ void HashTableInserter<MAX_K>::insert_into_local_hashtable(dist_object<KmerMap<M
 }
 
 template <int MAX_K>
-void HashTableInserter<MAX_K>::get_elapsed_time(double &insert_time, double &kernel_time) {}
+void HashTableInserter<MAX_K>::get_elapsed_time(double &insert_time, double &kernel_time) {
+  insert_time = state->insert_timer.get_elapsed();
+  kernel_time = state->kernel_timer.get_elapsed();
+}
 
 #define SEQ_BLOCK_INSERTER_K(KMER_LEN) template struct SeqBlockInserter<KMER_LEN>;
 #define HASH_TABLE_INSERTER_K(KMER_LEN) template class HashTableInserter<KMER_LEN>;
