@@ -8,7 +8,7 @@ module rm xl
 module load gcc
 #module load cuda
 #module load upcxx
-module use /gpfs/alpine/csc296/world-shared/crusher/modulefiles
+module use /gpfs/alpine/csc296/world-shared/spock/modulefiles
 module load upcxx
 module list
 which upcxx
