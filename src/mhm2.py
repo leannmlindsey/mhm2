@@ -496,7 +496,7 @@ def main():
         runtime_vars += runtime_output_vars
 
     if options.gasnet_trace:
-        runtime_vars += ' GASNET_TRACEFILE="./trace_%.txt", GASNET_TRACEMASK="U", GASNET_STATSMASK="", '
+        runtime_vars += ' GASNET_TRACEFILE="./trace_%.txt", GASNET_BACKTRACE_SIGNAL="12", GASNET_TRACEMASK="U", GASNET_STATSMASK="", '
 
     runenv = eval('dict(os.environ, %s MHM2_RUNTIME_PLACEHOLDER="")' % (runtime_vars))
     #print("Runtime environment: ", runenv)
