@@ -121,7 +121,9 @@ void contigging(int kmer_len, int prev_kmer_len, int rlen_limit, vector<PackedRe
                    (double)avg_num_reads / max_num_reads, ")\n");
       if (options->shuffle_reads) {
         stage_timers.shuffle_reads->start();
+        begin_gasnet_stats("shuffle_reads k = " + to_string(kmer_len));
         shuffle_reads(options->qual_offset, packed_reads_list, ctgs);
+        end_gasnet_stats();
         stage_timers.shuffle_reads->stop();
         num_reads = 0;
         for (auto packed_reads : packed_reads_list) {
