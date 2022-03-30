@@ -74,6 +74,7 @@ using std::string;
 using std::to_string;
 using std::tuple;
 using std::vector;
+using std::shared_ptr;
 
 using namespace upcxx_utils;
 
@@ -345,10 +346,9 @@ void CtgGraph::add_vertex_nb(cid_t cid, cid_t nb, char end) {
 }
 
 string CtgGraph::get_vertex_seq(upcxx::global_ptr<char> seq_gptr, int64_t seq_len) {
-  char buf[seq_len + 1];
-  upcxx::rget(seq_gptr, buf, seq_len + 1).wait();
-  string s(buf);
-  return s;
+  auto sh_buf = make_shared<string>(seq_len, ' ');
+  upcxx::rget(seq_gptr, sh_buf->data(), seq_len).wait();
+  return *sh_buf;;
 }
 
 shared_ptr<Edge> CtgGraph::get_edge(cid_t cid1, cid_t cid2) {
