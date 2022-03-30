@@ -74,6 +74,7 @@ using std::string;
 using std::to_string;
 using std::tuple;
 using std::vector;
+using std::shared_ptr;
 
 using namespace upcxx_utils;
 
@@ -208,14 +209,12 @@ shared_ptr<Vertex> CtgGraph::get_vertex(cid_t cid) {
   size_t target_rank = get_vertex_target_rank(cid);
   if (target_rank == (size_t)upcxx::rank_me()) {
     upcxx::progress();
-DBG("Got my own vertex\n");
     const auto it = vertices->find(cid);
     if (it == vertices->end()) return nullptr;
     return make_shared<Vertex>(it->second);
   }
   static int count=0;
   count++;
-DBG("Getting vertex from ", target_rank, " count=", count, "\n");
   return upcxx::rpc(
              target_rank,
              [](vertex_map_t &vertices, cid_t cid) {
@@ -225,7 +224,6 @@ DBG("Getting vertex from ", target_rank, " count=", count, "\n");
              },
              vertices, cid)
       .then([count=count,target_rank](Vertex v) -> shared_ptr<Vertex> {
-DBG("Received vertex from ", target_rank, " sizes=", v.end5.size(), " ", v.end3.size(), " ", v.end5_merged.size(), " ",  v.end3_merged.size(), " count=", count, "\n");
         if (v.cid == -1) return nullptr;
         return make_shared<Vertex>(v);
       })
@@ -350,12 +348,9 @@ void CtgGraph::add_vertex_nb(cid_t cid, cid_t nb, char end) {
 }
 
 string CtgGraph::get_vertex_seq(upcxx::global_ptr<char> seq_gptr, int64_t seq_len) {
-  char buf[seq_len + 1];
-DBG("Getting vertex seq ", seq_len+1, " bytes from ", seq_gptr, "\n");
-  upcxx::rget(seq_gptr, buf, seq_len + 1).wait();
-DBG("Received vertex seq from ", seq_gptr, "\n");
-  string s(buf);
-  return s;
+  auto sh_buf = make_shared<string>(seq_len, ' ');
+  upcxx::rget(seq_gptr, sh_buf->data(), seq_len).wait();
+  return *sh_buf;;
 }
 
 shared_ptr<Edge> CtgGraph::get_edge(cid_t cid1, cid_t cid2) {
@@ -364,14 +359,12 @@ shared_ptr<Edge> CtgGraph::get_edge(cid_t cid1, cid_t cid2) {
   size_t target_rank = get_edge_target_rank(cids);
   if (target_rank == (size_t)upcxx::rank_me()) {
     upcxx::progress();
-DBG("Found my edge\n");
     const auto it = edges->find(cids);
     if (it == edges->end()) return nullptr;
     return make_shared<Edge>(it->second);
   }
 static int count = 0;
 count++;
-DBG("Getting edge from ", target_rank, " count=", count, "\n");
   return upcxx::rpc(
              target_rank,
              [](edge_map_t &edges, CidPair cids) -> Edge {
@@ -381,7 +374,6 @@ DBG("Getting edge from ", target_rank, " count=", count, "\n");
              },
              edges, cids)
       .then([target_rank,count=count](Edge edge) -> shared_ptr<Edge> {
-DBG("Received edge from ", target_rank, " count=", count, "\n");
         if (edge.cids.cid1 == -1 && edge.cids.cid2 == -1) return nullptr;
         return make_shared<Edge>(edge);
       })
