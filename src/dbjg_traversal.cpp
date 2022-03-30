@@ -46,6 +46,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <memory>
 #include <iostream>
 #include <upcxx/upcxx.hpp>
 
@@ -350,12 +351,10 @@ static bool is_overlap(const string &left_seq, const string &right_seq, int over
 }
 
 static string get_frag_seq(FragElem &frag_elem) {
-  char *buf = new char[frag_elem.frag_len + 1];
-  rget(frag_elem.frag_seq, buf, frag_elem.frag_len + 1).wait();
-  string frag_seq(buf);
-  assert(frag_seq.length() == frag_elem.frag_len);
-  delete[] buf;
-  return frag_seq;
+  auto sh_frag_seq = make_shared<string>(frag_elem.frag_len, ' ');
+  rget(frag_elem.frag_seq, sh_frag_seq->data(), frag_elem.frag_len).wait();
+  assert(sh_frag_seq->length() == frag_elem.frag_len);
+  return *sh_frag_seq;
 }
 
 static void set_link_status(Dirn dirn, global_ptr<FragElem> &nb_gptr, bool &is_rc, string &uutig, int kmer_len,
