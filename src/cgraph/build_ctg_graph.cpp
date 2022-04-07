@@ -383,12 +383,10 @@ static void parse_reads(unsigned kmer_len, const vector<PackedReads *> &packed_r
   int64_t num_seqs_added = 0;
   int64_t num_reads = 0;
   unsigned max_read_len = 0;
-  size_t total_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
-  ProgressBar progbar(total_reads, "Processing reads for gap sequences");
   for (auto packed_reads : packed_reads_list) {
     packed_reads->reset();
     string id, seq, quals;
-    
+    ProgressBar progbar(packed_reads->get_local_num_reads(), "Processing reads for gap sequences");
     while (true) {
       progress();
       if (!packed_reads->get_next_read(id, seq, quals)) break;
@@ -399,9 +397,9 @@ static void parse_reads(unsigned kmer_len, const vector<PackedReads *> &packed_r
       if (seq.length() > max_read_len) max_read_len = seq.length();
       num_reads++;
     }
+    progbar.done();
+    barrier();
   }
-  progbar.done();
-  barrier();
   _graph->max_read_len = reduce_all(max_read_len, op_fast_max).wait();
   auto tot_num_reads = reduce_one(num_reads, op_fast_add, 0).wait();
   SLOG_VERBOSE("Processed a total of ", tot_num_reads, " reads, found max read length ", _graph->max_read_len, "\n");
