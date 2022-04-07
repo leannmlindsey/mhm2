@@ -348,9 +348,9 @@ void CtgGraph::add_vertex_nb(cid_t cid, cid_t nb, char end) {
 }
 
 string CtgGraph::get_vertex_seq(upcxx::global_ptr<char> seq_gptr, int64_t seq_len) {
-  auto sh_buf = make_shared<string>(seq_len, ' ');
-  upcxx::rget(seq_gptr, sh_buf->data(), seq_len).wait();
-  return *sh_buf;;
+  string seq(seq_len, ' ');
+  upcxx::rget(seq_gptr, seq.data(), seq_len).wait();
+  return seq;
 }
 
 shared_ptr<Edge> CtgGraph::get_edge(cid_t cid1, cid_t cid2) {
