@@ -164,4 +164,7 @@ class PackedReads {
   int64_t get_bases();
 
   int get_qual_offset();
+
+  static uint64_t estimate_num_kmers(unsigned kmer_len, vector<PackedReads *> &packed_reads_list);
 };
+

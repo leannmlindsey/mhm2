@@ -70,11 +70,11 @@ using namespace upcxx_utils;
 
 using cid_t = int64_t;
 
-static IntermittentTimer aln_cpu_bypass_timer(__FILENAME__ + string(":CPU_BSW-bypass"));
-static IntermittentTimer fetch_ctg_seqs_timer(__FILENAME__ + string(":Fetch ctg seqs"));
-static IntermittentTimer compute_alns_timer(__FILENAME__ + string(":Compute alns"));
-static IntermittentTimer get_ctgs_timer(__FILENAME__ + string(":Get ctgs with kmer"));
-static IntermittentTimer aln_kernel_timer(__FILENAME__ + string(":GPU_BSW"));
+extern IntermittentTimer aln_cpu_bypass_timer;
+extern IntermittentTimer fetch_ctg_seqs_timer;
+extern IntermittentTimer compute_alns_timer;
+extern IntermittentTimer get_ctgs_timer;
+extern IntermittentTimer aln_kernel_timer;
 
 void init_aligner(AlnScoring &aln_scoring, int rlen_limit);
 void cleanup_aligner();
@@ -525,6 +525,7 @@ class Aligner {
           // write directly to the cached string in active scope (represented by the string view, so okay to const_cast)
           rget(ctg_loc.seq_gptr + get_start, const_cast<char *>(ctg_seq.data()) + get_start, get_len).wait();
           fetch_ctg_seqs_timer.stop();
+          assert(fetch_ctg_seqs_timer.get_count() > 0);
           ctg_bytes_fetched += get_len;
         } else {
           ctg_cache_hits++;
@@ -559,6 +560,7 @@ class Aligner {
     auto max_ctg_bytes_fetched = reduce_one(ctg_bytes_fetched, op_fast_max, 0).wait();
     SLOG_VERBOSE("Contig bytes fetched ", get_size_str(all_ctg_bytes_fetched), " balance ",
                  (double)all_ctg_bytes_fetched / (rank_n() * max_ctg_bytes_fetched), "\n");
+    ctg_bytes_fetched = 0;
   }
 
   void print_cache_stats() {
@@ -589,11 +591,14 @@ static void build_alignment_index(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Contigs &ctgs
   auto my_reserve = 1.2 * est_num_kmers / rank_n() + 2000;  // 120% to keep the map fast
   kmer_ctg_dht.reserve(my_reserve);
   kmer_ctg_dht.reserve_ctg_seqs(ctgs.size());
+  size_t ctg_seq_lengths = 0, min_len_ctgs = 0;
   vector<Kmer<MAX_K>> kmers;
   for (auto it = ctgs.begin(); it != ctgs.end(); ++it) {
     auto ctg = it;
     progbar.update();
     if (ctg->seq.length() < min_ctg_len) continue;
+    ctg_seq_lengths += ctg->seq.length();
+    min_len_ctgs++;
     global_ptr<char> seq_gptr = kmer_ctg_dht.add_ctg_seq(ctg->seq);
     CtgLoc ctg_loc = {.cid = ctg->id, .seq_gptr = seq_gptr, .clen = (int)ctg->seq.length(), .depth = (float)ctg->depth};
     Kmer<MAX_K>::get_kmers(kmer_ctg_dht.kmer_len, string_view(ctg->seq.data(), ctg->seq.size()), kmers, true);
@@ -608,9 +613,12 @@ static void build_alignment_index(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Contigs &ctgs
   auto fut = progbar.set_done();
   kmer_ctg_dht.flush_add_kmers();
   auto tot_num_kmers = reduce_one(num_kmers, op_fast_add, 0).wait();
+  auto tot_num_ctgs = reduce_one(min_len_ctgs, op_fast_add, 0).wait();
+  auto tot_ctg_lengths = reduce_one(ctg_seq_lengths, op_fast_add, 0).wait();
   fut.wait();
   auto num_kmers_in_ht = kmer_ctg_dht.get_num_kmers();
   LOG("Estimated room for ", my_reserve, " my final count ", kmer_ctg_dht.size(), "\n");
+  SLOG_VERBOSE("Total contigs >= ", min_ctg_len, ": ", tot_num_ctgs, " seq_length: ", tot_ctg_lengths, "\n");
   SLOG_VERBOSE("Processed ", tot_num_kmers, " seeds from contigs, added ", num_kmers_in_ht, "\n");
   auto num_dropped_seed_to_ctgs = kmer_ctg_dht.get_num_dropped_seed_to_ctgs();
   if (num_dropped_seed_to_ctgs)
@@ -826,6 +834,7 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
   aln_kernel_timer.done_all();
   double aln_kernel_secs = aln_kernel_timer.get_elapsed();
   fetch_ctg_seqs_timer.clear();
+  assert(fetch_ctg_seqs_timer.get_count() == 0);
   aln_cpu_bypass_timer.clear();
   get_ctgs_timer.clear();
   compute_alns_timer.clear();
