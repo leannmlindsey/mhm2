@@ -144,7 +144,6 @@ static bool is_overlap_mismatch(int dist, int overlap) {
 }
 
 static void get_ctgs_from_walks(int max_kmer_len, int kmer_len, int break_scaff_Ns, vector<Walk> &walks, Contigs &ctgs) {
-LOG("Entering get_ctgs_from_walks kmer_len=", kmer_len, "\n");
   BarrierTimer timer(__FILEFUNC__);
   // match, mismatch, gap opening, gap extending, ambiguious
   StripedSmithWaterman::Aligner ssw_aligner(ALN_MATCH_SCORE, ALN_MISMATCH_COST, ALN_GAP_OPENING_COST, ALN_GAP_EXTENDING_COST,
@@ -152,9 +151,7 @@ LOG("Entering get_ctgs_from_walks kmer_len=", kmer_len, "\n");
   StripedSmithWaterman::Filter ssw_filter;
   ssw_filter.report_cigar = false;
   GapStats gap_stats = {0};
-LOG("Starting ", walks.size(), " walks\n");
   for (auto &walk : walks) {
-DBG("Walking len=", walk.len, " size=", walk.vertices.size(), " start_clen=", walk.start_clen, "\n");
     shared_ptr<Vertex> prev_v(nullptr);
     Contig ctg = {0};
     ctg.depth = walk.depth;
@@ -233,10 +230,8 @@ DBG("Walking len=", walk.len, " size=", walk.vertices.size(), " start_clen=", wa
             if (max_overlap > (int)seq.size()) max_overlap = seq.size();
             StripedSmithWaterman::Alignment ssw_aln;
             // make sure upcxx progress is done before starting alignment
-LOG("Starting discharge before alignment\n");
             progress();
             discharge();
-LOG("Starting alignment\n");
             ssw_aligner.Align(tail(ctg.seq, max_overlap).c_str(), head(seq, max_overlap).c_str(), max_overlap, ssw_filter, &ssw_aln,
                               max((int)(max_overlap / 2), 15));
             int left_excess = max_overlap - (ssw_aln.query_end + 1);
@@ -262,7 +257,6 @@ LOG("Starting alignment\n");
               ctg.seq.erase(ctg.seq.length() - max_overlap + ssw_aln.query_end + 1);
               ctg.seq += tail(seq, seq.size() - (ssw_aln.ref_end + 1));
             }
-DBG("Finished alignment\n");
           }
         } else {
           // gap is exactly 0
@@ -290,7 +284,6 @@ DBG("Finished alignment\n");
     // done with all walk vertices
     if (ctg.seq != "") ctgs.add_contig(ctg);
   }
-DBG("Done with my get_ctgs_from_walks\n");
   barrier();
   gap_stats.print();
   // now get unique ids for all the contigs
@@ -718,10 +711,7 @@ void walk_graph(CtgGraph *graph, int max_kmer_len, int kmer_len, int break_scaff
   {
     IntermittentTimer next_nbs_timer(__FILENAME__ + string(":") + "next_nbs");
     IntermittentTimer walks_timer(__FILENAME__ + string(":") + "walks");
-    static int iterations = 0;
     while (true) {
-      iterations++;
-      LOG("Starting walk iteration=", iterations, "\n");
       walks_timer.start();
       ProgressBar progbar(sorted_ctgs.size(), "Walking graph round " + to_string(num_rounds));
       auto tmp_walks = do_walks(max_kmer_len, kmer_len, sorted_ctgs, walk_stats, next_nbs_timer);
@@ -772,7 +762,6 @@ void walk_graph(CtgGraph *graph, int max_kmer_len, int kmer_len, int break_scaff
         break;
       }
     }  // loop until no more walks are found
-    LOG("Finished walk iterations=", iterations, "\n");
     next_nbs_timer.done_all();
     walks_timer.done_all();
   }

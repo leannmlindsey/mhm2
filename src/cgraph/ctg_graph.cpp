@@ -213,8 +213,6 @@ shared_ptr<Vertex> CtgGraph::get_vertex(cid_t cid) {
     if (it == vertices->end()) return nullptr;
     return make_shared<Vertex>(it->second);
   }
-  static int count=0;
-  count++;
   return upcxx::rpc(
              target_rank,
              [](vertex_map_t &vertices, cid_t cid) {
@@ -223,7 +221,7 @@ shared_ptr<Vertex> CtgGraph::get_vertex(cid_t cid) {
                return it->second;
              },
              vertices, cid)
-      .then([count=count,target_rank](Vertex v) -> shared_ptr<Vertex> {
+      .then([](Vertex v) -> shared_ptr<Vertex> {
         if (v.cid == -1) return nullptr;
         return make_shared<Vertex>(v);
       })
@@ -363,8 +361,6 @@ shared_ptr<Edge> CtgGraph::get_edge(cid_t cid1, cid_t cid2) {
     if (it == edges->end()) return nullptr;
     return make_shared<Edge>(it->second);
   }
-static int count = 0;
-count++;
   return upcxx::rpc(
              target_rank,
              [](edge_map_t &edges, CidPair cids) -> Edge {
@@ -373,7 +369,7 @@ count++;
                return it->second;
              },
              edges, cids)
-      .then([target_rank,count=count](Edge edge) -> shared_ptr<Edge> {
+      .then([](Edge edge) -> shared_ptr<Edge> {
         if (edge.cids.cid1 == -1 && edge.cids.cid2 == -1) return nullptr;
         return make_shared<Edge>(edge);
       })

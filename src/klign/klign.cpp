@@ -521,7 +521,6 @@ class Aligner {
 
           assert(get_start >= 0);
           assert(get_start + get_len <= ctg_seq.size());
-          DBG_VERBOSE("rget on ctg_loc cid=", ctg_loc.cid, " seq_gptr=", ctg_loc.seq_gptr, " clen=", ctg_loc.clen, " get_start=", get_start, " get_len=", get_len, " remote_mem=", ctg_loc.seq_gptr + get_start, "\n");
           fetch_ctg_seqs_timer.start();
           // write directly to the cached string in active scope (represented by the string view, so okay to const_cast)
           rget(ctg_loc.seq_gptr + get_start, const_cast<char *>(ctg_seq.data()) + get_start, get_len).wait();
@@ -602,7 +601,6 @@ static void build_alignment_index(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Contigs &ctgs
     min_len_ctgs++;
     global_ptr<char> seq_gptr = kmer_ctg_dht.add_ctg_seq(ctg->seq);
     CtgLoc ctg_loc = {.cid = ctg->id, .seq_gptr = seq_gptr, .clen = (int)ctg->seq.length(), .depth = (float)ctg->depth};
-_logger_recurse(DBG_OR_LOG_STREAM, "ctg_loc cid=", ctg_loc.cid, " seq_gptr=", ctg_loc.seq_gptr, " clen=", ctg_loc.clen, " depth=", ctg_loc.depth, "\n");
     Kmer<MAX_K>::get_kmers(kmer_ctg_dht.kmer_len, string_view(ctg->seq.data(), ctg->seq.size()), kmers, true);
     num_kmers += kmers.size();
     for (unsigned i = 0; i < kmers.size(); i++) {
@@ -687,7 +685,7 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
       }
       DBG("Received from ", target_rank, " kmer_ctg_locs.size=", kmer_ctg_locs.size(), " kmer_bytes_received=", kmer_bytes_received, " get_ctg_count=", get_ctg_count, "\n");
     });
-    discharge();
+    progress();
 
     upcxx_utils::limit_outstanding_futures(fut_rpc_returned, std::max(nnodes * 2, lranks * 4)).wait();
   }
