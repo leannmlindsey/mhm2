@@ -34,6 +34,7 @@
 #include "gqf.hpp"
 #include "gqf_int.hpp"
 #include "gpu-utils/gpu_common.hpp"
+#include "upcxx_utils/colors.h"
 
 #include <cuda_profiler_api.h>
 
@@ -634,7 +635,9 @@ __host__ __device__ static inline uint64_t find_first_empty_slot(QF *qf, uint64_
 
   // testing without this gate to check if we see speed improvements
   if (end_start_from > bucket_start_from + 1) {
-    printf("Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
+    //fprintf(stderr, KLRED "WARNING: Find first empty ran over a bucket: %lu" KNORM "\n", end_start_from - bucket_start_from);
+    qf->metadata->failed_inserts++;
+    return qf->metadata->xnslots;
   }
 
   return from;
@@ -1144,7 +1147,7 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
       if (empty_slot_index >= qf->metadata->xnslots) {
-        printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
+        //printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
         return QF_FULL;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -1361,7 +1364,7 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
       if (empty_slot_index >= qf->metadata->xnslots) {
-        printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
+        //printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
         return QF_NO_SPACE;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -1639,6 +1642,7 @@ __host__ uint64_t qf_init(QF *qf, uint64_t nslots, uint64_t key_bits, uint64_t v
   qf->metadata->nelts = 0;
   qf->metadata->ndistinct_elts = 0;
   qf->metadata->noccupied_slots = 0;
+  qf->metadata->failed_inserts = 0;
 
   qf->runtimedata->num_locks = ((qf->metadata->xnslots / NUM_SLOTS_TO_LOCK) + 10) * LOCK_DIST;
 
@@ -1705,6 +1709,9 @@ __host__ void *qf_destroy(QF *qf) {
   if (qf->runtimedata->wait_times != NULL) free(qf->runtimedata->wait_times);
   if (qf->runtimedata->f_info.filepath != NULL) free(qf->runtimedata->f_info.filepath);
   free(qf->runtimedata);
+  if (qf->metadata != NULL && qf->metadata->failed_inserts > 0) {
+    fprintf(stderr, KLRED "WARNING: Insufficient memory for GQF - failed to insert %lld kmers" KNORM "\n", (long long int) qf->metadata->failed_inserts);
+  }
 
   return (void *)qf->metadata;
 }
@@ -2214,9 +2221,9 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
   int found = qf_query(qf, hash, &bigquery, QF_NO_LOCK | QF_KEY_IS_HASH);
 
   query = bigquery;
-
+  int ret = 0;
   if (found == 0)
-    qf_insert(qf, hash, encoded, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
+    ret = qf_insert(qf, hash, encoded, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
   else
     decode_chars(query, returnedfwd, returnedback);
 
@@ -2225,6 +2232,7 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
   unlock_16(qf->runtimedata->locks, lock_index);
 
   if (found == 1) return QF_ITEM_FOUND;
+  if (ret <= QF_NO_SPACE) return QF_FULL;
   return QF_ITEM_INSERTED;
 }
 
@@ -2335,7 +2343,7 @@ __global__ void insert_multi_kmer_kernel(QF *qf, uint64_t *hashes, uint8_t *firs
   char fwd;
   char back;
 
-  if (insert_kmer(qf, hashes[tid], kmer_vals[one], kmer_vals[two - 5], fwd, back)) {
+  if (insert_kmer(qf, hashes[tid], kmer_vals[one], kmer_vals[two - 5], fwd, back) >= 0) {
     atomicAdd((unsigned long long *)counter, (unsigned long long)1);
   }
 }

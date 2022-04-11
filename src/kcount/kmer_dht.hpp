@@ -102,9 +102,9 @@ class HashTableInserter {
   HashTableInserter();
   ~HashTableInserter();
 
-  void init(int num_elems, bool use_qf);
+  void init(size_t num_elems, bool use_qf);
 
-  void init_ctg_kmers(int max_elems);
+  void init_ctg_kmers(size_t max_elems);
 
   void insert_supermer(const std::string &supermer_seq, kmer_count_t supermer_count);
 
@@ -132,7 +132,7 @@ class KmerDHT {
  public:
   bool using_ctg_kmers = false;
 
-  KmerDHT(uint64_t my_num_kmers, int max_kmer_store_bytes, int max_rpcs_in_flight, bool useHHSS, bool use_qf);
+  KmerDHT(uint64_t my_num_kmers, size_t max_kmer_store_bytes, int max_rpcs_in_flight, bool useHHSS, bool use_qf);
 
   void clear_stores();
 
