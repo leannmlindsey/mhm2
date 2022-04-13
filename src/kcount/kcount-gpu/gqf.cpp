@@ -1811,7 +1811,7 @@ __host__ int64_t qf_resize_malloc(QF *qf, uint64_t nslots) {
     qfi_next(&qfi);
     int ret = qf_insert(&new_qf, key, value, count, QF_NO_LOCK | QF_KEY_IS_HASH);
     if (ret < 0) {
-      printf("Failed to insert key: %ld into the new CQF.\n", key);
+      fprintf(stderr, KLRED "ERROR: Failed to insert key: %ld into the new CQF." KNORM "\n", key);
       return ret;
     }
     ret_numkeys++;
@@ -1848,7 +1848,7 @@ uint64_t qf_resize(QF *qf, uint64_t nslots, void *buffer, uint64_t buffer_len) {
     qfi_next(&qfi);
     int ret = qf_insert(&new_qf, key, value, count, QF_NO_LOCK | QF_KEY_IS_HASH);
     if (ret < 0) {
-      printf("Failed to insert key: %ld into the new CQF.\n", key);
+      fprintf(stderr, KLRED "Failed to insert key: %ld into the new CQF." KNORM "\n", key);
       abort();  // kill kernel with error
     }
   } while (!qfi_end(&qfi));
@@ -2233,6 +2233,7 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
 
   if (found == 1) return QF_ITEM_FOUND;
   if (ret <= QF_NO_SPACE) return QF_FULL;
+  assert(ret >= 0);
   return QF_ITEM_INSERTED;
 }
 
