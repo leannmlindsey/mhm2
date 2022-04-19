@@ -137,7 +137,8 @@ void FastqReader::seekg(int64_t pos) {
 
 int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
   // first record is the first record, include it.  Every other partition will be at least 1 full record after offset.
-  if (offset == 0) return 0;
+  // but read the first few lines anyway
+
   // eof - do not read anything
   if (offset >= file_size) return file_size;
 
@@ -145,8 +146,11 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
 
   in->seekg(offset);
   if (!in->good()) DIE("Could not fseek in ", fname, " to ", offset, ": ", strerror(errno));
-  // skip first (likely partial) line after this offset to ensure we start at the beginning of a line
-  std::getline(*in, buf);
+  
+  if (offset != 0) {
+    // skip first (likely partial) line after this offset to ensure we start at the beginning of a line
+    std::getline(*in, buf);
+  }
   if (buf.empty() && (in->eof() || in->fail())) {
     io_t.stop();
     DBG("Got eof, fail or empty getline at ", tellg(), " eof=", in->eof(), " fail=", in->fail(), " buf=", buf.size(), "\n");
@@ -172,11 +176,23 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
 
   char last_pair = '\0', this_pair = '\1';
   int i;
+  string possible_header, last_header;
   for (i = 0; i < lines.size(); i++) {
     int64_t this_tell = tells[i];
     string &tmp = lines[i];
     if (tmp[0] == '@') {
       string header(tmp);
+      possible_header = header;
+      if (possible_header.compare(last_header) == 0) {
+        // test and possibly fix identical read pair names without corresponding header field - Issue124
+        if (_is_paired) {
+          _fix_paired_name = true;
+          LOG("Detected indistinguishable paired read names which will be fixed on-the-fly: ", last_header, " in ", this->fname, "\n");
+          if (offset == 0) WARN(this->fname, " is paired but read names are indistinguisable.  example: ", possible_header, "\n");
+        } else {
+          DIE("Invalid unpaired fastq file that contains identical sequential read names: ", last_header, " in ", this->fname, "\n");
+        }
+      }
       rtrim(header);
       if (!get_fq_name(header)) continue;
 
@@ -253,9 +269,16 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
       this_pair = header[header.length() - 1];
       DBG("Found possible pair ", (char)this_pair, ", header: ", header, "\n");
       if (last_pair == this_pair) {
-        // one of two split files or a merged file without pairs
-        DBG("Same pair, so keep the first\n");
-        break;
+        if (_fix_paired_name) {
+          if (last_header.compare(possible_header) == 0) {
+            DBG("Second indistinguishable pair, so keep at the first record\n");
+            break;
+          }
+        } else if (header[header.length() - 2] == '/') {
+          // one of two split files or a merged file without pairs
+          DBG("Same pair, so keep at the first record\n");
+          break;
+        }
       } else if (last_pair == '1' && this_pair == '2') {
         // proper pair
         DBG("Found proper pair 1&2\n");
@@ -265,11 +288,15 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
       // did not find valid new start of (possibly paired) record
       last_tell = this_tell;
       last_pair = this_pair;
+      last_header = possible_header;
     }
     if (i >= lines.size()) DIE("Could not find a valid line in the fastq file ", fname, ", last line: ", buf);
   }
   io_t.stop();
   DBG("Found record at ", last_tell, " after offset ", offset, "\n");
+  if (offset == 0 && last_tell != 0) {
+    WARN("First rank to read really should return the first byte for ", fname, " offset=", offset, " last_tell=", last_tell, "\n");
+  }
   return last_tell;
 }
 
@@ -277,9 +304,12 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
     : fname(_fname)
     , in(nullptr)
     , max_read_len(0)
+    , read_count(0)
     , fqr2(nullptr)
     , first_file(true)
     , _is_paired(true)
+    , _fix_paired_name(false)
+    , _first_pair(true)
     , io_t("fastq IO for " + fname)
     , dist_prom(world())
     , open_fut(make_future()) {
@@ -288,15 +318,18 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
   bool need_wait = first_wait.ready();
   string fname2;
   size_t pos;
+  LOG("Constructed FastqReader with fname=", fname, " first_wait=", (first_wait.ready() ? "Ready" : "NOT READY"), "\n");
   if ((pos = fname.find(':')) != string::npos) {
     if (pos == fname.size() - 1) {
       // unpaired/single file
       _is_paired = false;
       fname = fname.substr(0, pos);
+      LOG("New unpaired fname=", fname, "\n");
     } else {
       // colon separating a pair into two files
       fname2 = fname.substr(pos + 1);
       fname = fname.substr(0, pos);
+      LOG("New two file paired fname=", fname, " fname2=", fname2, "\n");
     }
   }
   static int rotate_rank = 0;
@@ -685,6 +718,7 @@ size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, b
       assert(read_count > fqr2->read_count);
       auto bytes_read = fqr2->get_next_fq_record(id, seq, quals, wait_open);
       assert(read_count == fqr2->read_count);
+      if (_fix_paired_name) id[id.length()-1] = '2'; // this is read2
       return bytes_read;
     }
   }
@@ -715,12 +749,21 @@ size_t FastqReader::get_next_fq_record(string &id, string &seq, string &quals, b
   if (!get_fq_name(id)) DIE("Invalid FASTQ in ", fname, ": incorrect name format '", id, "'");
   // get rid of spaces
   replace_spaces(id);
+  if (_is_paired & _fix_paired_name) {
+    if (fqr2) {
+      id += "/1";
+    } else {
+      if (_first_pair) id += "/1";
+      else id += "/2";
+    }
+  }
   if (seq.length() != quals.length())
     DIE("Invalid FASTQ in ", fname, ": sequence length ", seq.length(), " != ", quals.length(), " quals length\n", "id:   ", id,
         "\nseq:  ", seq, "\nquals: ", quals);
   if (seq.length() > max_read_len) max_read_len = seq.length();
   io_t.stop();
   DBG_VERBOSE("Read ", id, " bytes=", bytes_read, "\n");
+  _first_pair = !_first_pair;
   return bytes_read;
 }
 
