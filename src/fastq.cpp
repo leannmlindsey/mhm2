@@ -318,15 +318,18 @@ FastqReader::FastqReader(const string &_fname, upcxx::future<> first_wait)
   bool need_wait = first_wait.ready();
   string fname2;
   size_t pos;
+  LOG("Constructed FastqReader with fname=", fname, " first_wait=", (first_wait.ready() ? "Ready" : "NOT READY"), "\n");
   if ((pos = fname.find(':')) != string::npos) {
     if (pos == fname.size() - 1) {
       // unpaired/single file
       _is_paired = false;
       fname = fname.substr(0, pos);
+      LOG("New unpaired fname=", fname, "\n");
     } else {
       // colon separating a pair into two files
       fname2 = fname.substr(pos + 1);
       fname = fname.substr(0, pos);
+      LOG("New two file paired fname=", fname, " fname2=", fname2, "\n");
     }
   }
   static int rotate_rank = 0;
