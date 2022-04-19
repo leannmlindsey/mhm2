@@ -148,7 +148,7 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
   if (!in->good()) DIE("Could not fseek in ", fname, " to ", offset, ": ", strerror(errno));
   
   if (offset != 0) {
-    // skip first (likely partial) line after this offset to ensure we start at the beginning of a line
+    
     std::getline(*in, buf);
   }
   if (buf.empty() && (in->eof() || in->fail())) {
@@ -188,6 +188,7 @@ int64_t FastqReader::get_fptr_for_next_record(int64_t offset) {
         if (_is_paired) {
           _fix_paired_name = true;
           LOG("Detected indistinguishable paired read names which will be fixed on-the-fly: ", last_header, " in ", this->fname, "\n");
+          if (offset == 0) WARN(this->fname, " is paired but read names are indistinguisable.  example: ", possible_header, "\n");
         } else {
           DIE("Invalid unpaired fastq file that contains identical sequential read names: ", last_header, " in ", this->fname, "\n");
         }
