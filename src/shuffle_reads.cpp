@@ -277,6 +277,7 @@ static dist_object<read_to_target_map_t> compute_read_locations(dist_object<cid_
   auto max_num_mapped_reads = reduce_one(num_mapped_reads, op_fast_max, 0).wait();
   auto all_num_mapped_reads = fut_all_num_mapped_reads.wait();
   auto read_slot = fut_read_slot.wait() - num_mapped_reads;  // get my starting read slot
+  LOG("read_slot=", read_slot, " num_mapped_reads=", num_mapped_reads, " max_num_mapped_reads=", max_num_mapped_reads, " all_num_mapped_reads=", all_num_mapped_reads, "\n");
   barrier();
   auto avg_num_mapped_reads = all_num_mapped_reads / rank_n();
   SLOG_VERBOSE("Avg mapped reads per rank ", avg_num_mapped_reads, " max ", max_num_mapped_reads, " balance ",
@@ -290,6 +291,7 @@ static dist_object<read_to_target_map_t> compute_read_locations(dist_object<cid_
   read_target_store.set_update_func([&read_to_target_map](ReadTarget rt) { read_to_target_map->insert({rt.read_id, rt.target}); });
   read_to_target_map->reserve(avg_num_mapped_reads);
   barrier();
+  ProgressBar progbar(num_mapped_reads, "Updating read targets");
   int64_t block = (all_num_mapped_reads + rank_n() - 1) / rank_n();
   // int64_t num_reads_found = 0;
   for (auto &[cid, read_ids] : *cid_to_reads_map) {
@@ -298,14 +300,19 @@ static dist_object<read_to_target_map_t> compute_read_locations(dist_object<cid_
     for (auto read_id : read_ids) {
       // num_reads_found++;
       ReadTarget rt{read_id, read_slot / block};
+      assert(rt.target < rank_n() && "Target is on a rank's block");
       read_target_store.update(get_target_rank(read_id), rt);
       // each entry is a pair
       read_slot += 2;
     }
+    progbar.update(read_ids.size()*2);
   }
+  assert(read_slot == fut_read_slot.wait() && "updated all Read-Targets");
+  auto fut_progbar = progbar.set_done();
   read_target_store.flush_updates();
-  barrier();
   read_target_store.clear();
+  fut_progbar.wait();
+  barrier();
   auto tot_reads_found = reduce_one(read_to_target_map->size(), op_fast_add, 0).wait();
   SLOG_VERBOSE("Number of read pairs mapping to contigs is ", perc_str(tot_reads_found, tot_num_reads / 2), "\n");
   return read_to_target_map;
