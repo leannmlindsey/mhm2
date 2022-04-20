@@ -3,10 +3,17 @@
 
 This is the ChangeLog for MetaHipMer with development at [bitbucket](https://bitbucket.org/berkeleylab/mhm2)
 
-### More fixes not in the tagged versions below
-   * PR #40, 42
-   * Minor bugfixes Issues #97 
-   * Fixed mhm2.py script for PBS
+### 2.1.0 2022-01-24
+   * Major updates to GPU offloading in kcount - PR #48
+      * Removed bloom filters from CPU & GPU kcount
+   * Counting quotient filter in kcount (GPU only) - PR #54
+   * Fixed potential deadlock in kcount atomics PR #55, Issue #108
+   * Read shuffling based on minimizer kmers, not alignments 
+   * Improved GPU autodetection and initialization
+   * Trimming of read adapters
+   * Other PR #40, #42, #44, #45, #46, #49, #51, #53, #55
+   * Minor bugfixes Issue #97, #112, #86, #63, #109, #107, #83, #91, #92, #25, #37, #89
+   * Fixed mhm2.py script for PBS - Issue #32
 
 ### 2.0.1.2 2021-04-22
    * A very minor bugfix release to facilitate building against UPC++ 2021.3.0

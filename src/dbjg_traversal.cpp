@@ -152,7 +152,6 @@ static string gptr_str(global_ptr<FragElem> gptr) {
   return to_string(gptr.where()) + ":" + s;
 }
 
-#ifdef DEBUG
 template <int MAX_K>
 static bool check_kmers(const string &seq, dist_object<KmerDHT<MAX_K>> &kmer_dht, int kmer_len) {
   vector<Kmer<MAX_K>> kmers;
@@ -163,7 +162,6 @@ static bool check_kmers(const string &seq, dist_object<KmerDHT<MAX_K>> &kmer_dht
   }
   return true;
 }
-#endif
 
 template <int MAX_K>
 StepInfo<MAX_K> get_next_step(dist_object<KmerDHT<MAX_K>> &kmer_dht, const Kmer<MAX_K> start_kmer, const Dirn dirn,
@@ -352,11 +350,8 @@ static bool is_overlap(const string &left_seq, const string &right_seq, int over
 }
 
 static string get_frag_seq(FragElem &frag_elem) {
-  char *buf = new char[frag_elem.frag_len + 1];
-  rget(frag_elem.frag_seq, buf, frag_elem.frag_len + 1).wait();
-  string frag_seq(buf);
-  assert(frag_seq.length() == frag_elem.frag_len);
-  delete[] buf;
+  string frag_seq(frag_elem.frag_len, ' ');
+  rget(frag_elem.frag_seq, frag_seq.data(), frag_elem.frag_len).wait();
   return frag_seq;
 }
 

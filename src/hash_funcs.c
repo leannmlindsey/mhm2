@@ -48,6 +48,17 @@ uint32_t rotl32(uint32_t x, int8_t r) { return (x << r) | (x >> (32 - r)); }
 
 uint64_t rotl64(uint64_t x, int8_t r) { return (x << r) | (x >> (64 - r)); }
 
+#define ROTL32(x, y) rotl32(x, y)
+#define ROTL64(x, y) rotl64(x, y)
+
+#define BIG_CONSTANT(x) (x##LLU)
+
+//-----------------------------------------------------------------------------
+// Block read - if your platform needs to do endian-swapping or can only
+// handle aligned reads, do the conversion here
+
+#define getblock(p, i) (p[i])
+
 //-----------------------------------------------------------------------------
 // Finalization mix - force all bits of a hash block to avalanche
 
@@ -317,3 +328,16 @@ uint32_t SuperFastHash(const char *data, int len) {
 
   return hash;
 }
+
+uint64_t quick_hash(uint64_t v) {
+  v = v * 3935559000370003845 + 2691343689449507681;
+  v ^= v >> 21;
+  v ^= v << 37;
+  v ^= v >> 4;
+  v *= 4768777513237032717;
+  v ^= v << 20;
+  v ^= v >> 41;
+  v ^= v << 5;
+  return v;
+}
+
