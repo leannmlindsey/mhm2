@@ -145,11 +145,13 @@ class PackedReads {
 
   void clear();
 
-  string get_fname();
+  string get_fname() const;
 
-  unsigned get_max_read_len();
+  unsigned get_max_read_len() const;
 
-  int64_t get_local_num_reads();
+  int64_t get_local_num_reads() const;
+
+  static int64_t get_total_local_num_reads(const vector<PackedReads*> &packed_reads_list);
 
   void add_read(const string &read_id, const string &seq, const string &quals);
 
