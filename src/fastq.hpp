@@ -75,10 +75,12 @@ class FastqReader {
   int subsample_pct = 100;
   string buf;
   int qual_offset;
-  int read_count = 0;
+  int read_count = 0;    // used in subsample
   shared_ptr<FastqReader> fqr2;
   bool first_file;
-  bool _is_paired;
+  bool _is_paired;       // file was declared as paired by the user
+  bool _fix_paired_name; // Issue124 - file contains identical names of paired reads, so fix each paired read name to be unique on-the-fly 
+  bool _first_pair;      // alternate for pair1 (first_pair) and pair2 (!first_pair)
   bool _is_bgzf;
   IntermittentTimer io_t;
   struct PromStartStop {
