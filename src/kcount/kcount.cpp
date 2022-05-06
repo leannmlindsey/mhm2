@@ -64,11 +64,9 @@ static void count_kmers(unsigned kmer_len, int qual_offset, vector<PackedReads *
   IntermittentTimer t_pp(__FILENAME__ + string(":kmer parse and pack"));
   barrier();
   SeqBlockInserter<MAX_K> seq_block_inserter(qual_offset, kmer_dht->get_minimizer_len());
-  int64_t tot_num_local_reads = 0;
-  for (auto packed_reads : packed_reads_list) {
-    tot_num_local_reads += packed_reads->get_local_num_reads();
-  }
-  ProgressBar progbar(tot_num_local_reads, "Processing reads to count kmers");
+  int64_t total_local_num_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
+  int64_t total_local_raw_kmers = 0;
+  ProgressBar progbar(total_local_num_reads, "Processing reads to count kmers");
 
   for (auto packed_reads : packed_reads_list) {
     packed_reads->reset();
@@ -85,6 +83,7 @@ static void count_kmers(unsigned kmer_len, int qual_offset, vector<PackedReads *
           num_bad_quals++;
         }
       }
+      total_local_raw_kmers += seq.length() - kmer_len + 1;
       seq_block_inserter.process_seq(seq, 0, kmer_dht);
       progress();
     }
@@ -93,7 +92,8 @@ static void count_kmers(unsigned kmer_len, int qual_offset, vector<PackedReads *
   progbar.done();
   kmer_dht->flush_updates();
   auto all_num_reads = reduce_one(num_reads, op_fast_add, 0).wait();
-  SLOG_VERBOSE("Processed a total of ", all_num_reads, " reads\n");
+  auto all_raw_kmers = reduce_one(total_local_raw_kmers, op_fast_add, 0).wait();
+  SLOG_VERBOSE("Processed a total of ", all_num_reads, " reads ", all_raw_kmers, " raw kmers\n");
   auto all_num_bad_quals = reduce_one(num_bad_quals, op_fast_add, 0).wait();
   auto all_tot_read_len = reduce_one(tot_read_len, op_fast_add, 0).wait();
   if (all_num_bad_quals) SLOG_VERBOSE("Found ", perc_str(all_num_bad_quals, all_tot_read_len), " bad quality positions\n");
@@ -103,6 +103,7 @@ template <int MAX_K>
 static void add_ctg_kmers(unsigned kmer_len, unsigned prev_kmer_len, Contigs &ctgs, dist_object<KmerDHT<MAX_K>> &kmer_dht) {
   BarrierTimer timer(__FILEFUNC__);
   int64_t num_prev_kmers = kmer_dht->get_num_kmers();
+  int64_t total_local_raw_kmers = 0;
 
   ProgressBar progbar(ctgs.size(), "Adding extra contig kmers from kmer length " + to_string(prev_kmer_len));
   auto start_local_num_kmers = kmer_dht->get_local_num_kmers();
@@ -128,6 +129,7 @@ static void add_ctg_kmers(unsigned kmer_len, unsigned prev_kmer_len, Contigs &ct
     auto ctg = it;
     progbar.update();
     if (ctg->seq.length() < kmer_len + 2) continue;
+    total_local_raw_kmers += ctg->seq.length() - kmer_len + 1;
     seq_block_inserter.process_seq(ctg->seq, ctg->get_uint16_t_depth(), kmer_dht);
   }
   DBG("after ctgs loop\n");
@@ -136,7 +138,8 @@ static void add_ctg_kmers(unsigned kmer_len, unsigned prev_kmer_len, Contigs &ct
   progbar.done();
   kmer_dht->flush_updates();
   auto all_num_ctgs = reduce_one(ctgs.size(), op_fast_add, 0).wait();
-  SLOG_VERBOSE("Processed a total of ", all_num_ctgs, " contigs\n");
+  auto all_raw_kmers = reduce_one(total_local_raw_kmers, op_fast_add, 0).wait();
+  SLOG_VERBOSE("Processed a total of ", all_num_ctgs, " contigs and ", total_local_raw_kmers, " raw kmers\n");
 };
 
 template <int MAX_K>

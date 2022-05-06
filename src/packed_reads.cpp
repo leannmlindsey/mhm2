@@ -226,11 +226,19 @@ void PackedReads::clear() {
   LOG_MEM("Cleared Packed Reads");
 }
 
-string PackedReads::get_fname() { return fname; }
+string PackedReads::get_fname() const { return fname; }
 
-unsigned PackedReads::get_max_read_len() { return max_read_len; }
+unsigned PackedReads::get_max_read_len() const { return max_read_len; }
 
-int64_t PackedReads::get_local_num_reads() { return packed_reads.size(); }
+int64_t PackedReads::get_local_num_reads() const { return packed_reads.size(); }
+
+int64_t PackedReads::get_total_local_num_reads(const vector<PackedReads*> &packed_reads_list) {
+    int64_t total_local_num_reads = 0;
+    for(const PackedReads * pr: packed_reads_list) {
+      total_local_num_reads += pr->get_local_num_reads();
+    }
+    return total_local_num_reads;
+  }
 
 int PackedReads::get_qual_offset() { return qual_offset; }
 
@@ -336,9 +344,8 @@ uint64_t PackedReads::estimate_num_kmers(unsigned kmer_len, vector<PackedReads *
   BarrierTimer timer(__FILEFUNC__);
   int64_t num_kmers = 0;
   int64_t num_reads = 0;
-  int64_t tot_num_reads = 0;
+  int64_t tot_num_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
   for (auto packed_reads : packed_reads_list) {
-    tot_num_reads += packed_reads->get_local_num_reads();
     packed_reads->reset();
     string id, seq, quals;
     ProgressBar progbar(packed_reads->get_local_num_reads(), "Scanning reads to estimate number of kmers");
