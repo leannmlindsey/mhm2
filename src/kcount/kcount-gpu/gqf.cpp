@@ -633,9 +633,11 @@ __host__ __device__ static inline uint64_t find_first_empty_slot(QF *qf, uint64_
   uint64_t bucket_start_from = start_from / NUM_SLOTS_TO_LOCK;
   uint64_t end_start_from = from / NUM_SLOTS_TO_LOCK;
 
-  // testing without this gate to check if we see speed improvements
+  // This option works fine, but drops some inserts even when there is sufficient space
+  // if (end_start_from > bucket_start_from) {
+  // This option with +1 causes illegal memory accesses elsewhere
   if (end_start_from > bucket_start_from + 1) {
-    printf(KLRED "WARNING: Find first empty ran over a bucket: %lu" KNORM "\n", end_start_from - bucket_start_from);
+    // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
     qf->metadata->failed_inserts++;
     return qf->metadata->xnslots;
   }
@@ -1147,8 +1149,8 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
       if (empty_slot_index >= qf->metadata->xnslots) {
-        printf(KLRED "WARNING: ran out of space. Total xnslots is %lu, first empty slot is %lu" KNORM "\n", qf->metadata->xnslots,
-               empty_slot_index);
+        printf(KLRED "WARNING [%s:%d]" KNORM "GQF ran out of space. Total xnslots is %lu, first empty slot is %lu\n", __FILE__,
+               __LINE__, qf->metadata->xnslots, empty_slot_index);
         return QF_FULL;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -1365,8 +1367,8 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
       if (empty_slot_index >= qf->metadata->xnslots) {
-        printf(KLRED "WARNINNG: ran out of space. Total xnslots is %lu, first empty slot is %lu" KNORM "\n", qf->metadata->xnslots,
-               empty_slot_index);
+        // printf(KLRED "WARNING [%s:%d]" KNORM "GQF ran out of space. Total xnslots is %lu, first empty slot is %lu\n", __FILE__,
+        //        __LINE__, qf->metadata->xnslots, empty_slot_index);
         return QF_NO_SPACE;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -1711,10 +1713,11 @@ __host__ void *qf_destroy(QF *qf) {
   if (qf->runtimedata->wait_times != NULL) free(qf->runtimedata->wait_times);
   if (qf->runtimedata->f_info.filepath != NULL) free(qf->runtimedata->f_info.filepath);
   free(qf->runtimedata);
+  /*
   if (qf->metadata != NULL && qf->metadata->failed_inserts > 0) {
-    printf(KLRED "WARNING: Insufficient memory for GQF - failed to insert %lld kmers" KNORM "\n",
+    printf(KLRED "WARNING [%s:%d]" KNORM "Insufficient memory for GQF - failed to insert %lld kmers\n", __FILE__, __LINE__,
            (long long int)qf->metadata->failed_inserts);
-  }
+  }*/
 
   return (void *)qf->metadata;
 }
@@ -1936,10 +1939,8 @@ __host__ __device__ int qf_insert(QF *qf, uint64_t key, uint64_t value, uint64_t
 
   uint64_t hash = (key << qf->metadata->value_bits) | (value & BITMASK(qf->metadata->value_bits));
   // printf("Inside insert, new hash is recorded as %llu\n", hash);
-  int ret = QF_NO_SPACE;
-  if (count == 1) ret = insert1(qf, hash, flags);
   assert(count == 1);
-  return ret;
+  return insert1(qf, hash, flags);
 }
 /*------------------------
 GPU Modifications
@@ -2524,6 +2525,19 @@ __host__ uint64_t host_qf_get_num_occupied_slots(const QF *qf) {
   CUDA_CHECK(cudaMallocHost((void **)&_metadata, sizeof(qfmetadata)));
   CUDA_CHECK(cudaMemcpy(_metadata, host_qf->metadata, sizeof(qfmetadata), cudaMemcpyDeviceToHost));
   uint64_t toReturn = _metadata->noccupied_slots;
+  CUDA_CHECK(cudaFreeHost(_metadata));
+  CUDA_CHECK(cudaFreeHost(host_qf));
+  return toReturn;
+}
+
+__host__ uint64_t host_qf_get_failures(const QF *qf) {
+  QF *host_qf;
+  CUDA_CHECK(cudaMallocHost((void **)&host_qf, sizeof(QF)));
+  CUDA_CHECK(cudaMemcpy(host_qf, qf, sizeof(QF), cudaMemcpyDeviceToHost));
+  qfmetadata *_metadata;
+  CUDA_CHECK(cudaMallocHost((void **)&_metadata, sizeof(qfmetadata)));
+  CUDA_CHECK(cudaMemcpy(_metadata, host_qf->metadata, sizeof(qfmetadata), cudaMemcpyDeviceToHost));
+  uint64_t toReturn = _metadata->failed_inserts;
   CUDA_CHECK(cudaFreeHost(_metadata));
   CUDA_CHECK(cudaFreeHost(host_qf));
   return toReturn;

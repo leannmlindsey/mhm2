@@ -268,6 +268,8 @@ void HashTableInserter<MAX_K>::flush_inserts() {
     // SLOG_GPU("  QF found ", perc_str(num_unique_qf, num_inserts), " unique kmers ", num_inserts, "\n");
     SLOG_GPU("  QF filtered out ", perc_str(num_unique_qf - num_inserts, num_unique_qf), " singletons\n");
     SLOG_GPU("  QF load factor ", state->ht_gpu_driver.get_qf_load_factor(), "\n");
+    auto qf_failures = reduce_one((uint64_t)state->ht_gpu_driver.get_qf_failures(), op_fast_add, 0).wait();
+    if (qf_failures) SWARN("GQF failed to insert ", qf_failures, " items (insufficient allocation for the GQF)");
   }
   double load = (double)(insert_stats.new_inserts) / capacity;
   double avg_load_factor = reduce_one(load, op_fast_add, 0).wait() / rank_n();
