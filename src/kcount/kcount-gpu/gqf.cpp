@@ -612,7 +612,7 @@ __host__ __device__ static inline uint64_t find_first_empty_slot_verbose(QF *qf,
 */
 
 __host__ __device__ static inline uint64_t find_first_empty_slot(QF *qf, uint64_t from) {
-  uint64_t start_from = from;
+  // uint64_t start_from = from;
 
   do {
     int t = offset_lower_bound(qf, from);
@@ -630,20 +630,19 @@ __host__ __device__ static inline uint64_t find_first_empty_slot(QF *qf, uint64_
     from = from + t;
   } while (1);
 
-  uint64_t bucket_start_from = start_from / NUM_SLOTS_TO_LOCK;
-  uint64_t end_start_from = from / NUM_SLOTS_TO_LOCK;
+  // uint64_t bucket_start_from = start_from / NUM_SLOTS_TO_LOCK;
+  // uint64_t end_start_from = from / NUM_SLOTS_TO_LOCK;
 
-
-  //The problem here was that from isn't the true home slot, it's the slot where the current insert is going to occur
-  //so this comparison can run over if from/NUM_SLOTS_TO_LOCK > true_home_slot /NUM_SLOTS_TO_LOCK
-  // This option works fine, but drops some inserts even when there is sufficient space
-  // if (end_start_from > bucket_start_from) {
-  // This option with +1 causes illegal memory accesses elsewhere
-  // if (end_start_from > bucket_start_from + 1) {
-  //   // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
-  //   qf->metadata->failed_inserts++;
-  //   return qf->metadata->xnslots;
-  // }
+  // The problem here was that from isn't the true home slot, it's the slot where the current insert is going to occur
+  // so this comparison can run over if from/NUM_SLOTS_TO_LOCK > true_home_slot /NUM_SLOTS_TO_LOCK
+  //  This option works fine, but drops some inserts even when there is sufficient space
+  //  if (end_start_from > bucket_start_from) {
+  //  This option with +1 causes illegal memory accesses elsewhere
+  //  if (end_start_from > bucket_start_from + 1) {
+  //    // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
+  //    qf->metadata->failed_inserts++;
+  //    return qf->metadata->xnslots;
+  //  }
 
   return from;
 }
@@ -1152,13 +1151,11 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
 
-      if (empty_slot_index / QF_SLOTS_PER_BLOCK > hash_bucket_index / QF_SLOTS_PER_BLOCK + 1){
-
-        printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
+      if (empty_slot_index / QF_SLOTS_PER_BLOCK > hash_bucket_index / QF_SLOTS_PER_BLOCK + 1) {
+        // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
         qf->metadata->failed_inserts++;
         return QF_FULL;
       }
-
 
       if (empty_slot_index >= qf->metadata->xnslots) {
         printf(KLRED "WARNING [%s:%d]" KNORM "GQF ran out of space. Total xnslots is %lu, first empty slot is %lu\n", __FILE__,
@@ -1379,17 +1376,16 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
 
-      if (empty_slot_index / QF_SLOTS_PER_BLOCK > hash_bucket_index / QF_SLOTS_PER_BLOCK + 1){
-
-        printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
+      if (empty_slot_index / QF_SLOTS_PER_BLOCK > hash_bucket_index / QF_SLOTS_PER_BLOCK + 1) {
+        // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket\n");
         qf->metadata->failed_inserts++;
-        return QF_FULL;
+        return QF_NO_SPACE;
       }
 
-      
       if (empty_slot_index >= qf->metadata->xnslots) {
         // printf(KLRED "WARNING [%s:%d]" KNORM "GQF ran out of space. Total xnslots is %lu, first empty slot is %lu\n", __FILE__,
         //        __LINE__, qf->metadata->xnslots, empty_slot_index);
+        qf->metadata->failed_inserts++;
         return QF_NO_SPACE;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
