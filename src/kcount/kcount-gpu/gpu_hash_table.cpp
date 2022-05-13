@@ -425,6 +425,8 @@ __global__ void gpu_insert_supermer_block(KmerCountsMap<MAX_K> elems, SupermerBu
         } else if (qf_insert_result == quotient_filter::QF_ITEM_FOUND) {
           gpu_insert_kmer(elems, hash_val, kmer, left_ext, right_ext, prev_left_ext, prev_right_ext, kmer_count, new_inserts,
                           dropped_inserts, ctg_kmers, use_qf, false);
+        } else if (qf_insert_result == quotient_filter::QF_FULL) {
+          printf(KLRED "WARNING: QF is full" KNORM "\n");
         }
       }
     }
