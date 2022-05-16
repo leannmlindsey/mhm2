@@ -1154,13 +1154,13 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
       if (empty_slot_index / NUM_SLOTS_TO_LOCK > hash_bucket_index / NUM_SLOTS_TO_LOCK + 1) {
         // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
         qf->metadata->failed_inserts++;
-        return QF_NO_SPACE;
+        return QF_FULL;
       }
 
       if (empty_slot_index >= qf->metadata->xnslots) {
         printf(KLRED "WARNING [%s:%d]" KNORM "GQF ran out of space. Total xnslots is %lu, first empty slot is %lu\n", __FILE__,
                __LINE__, qf->metadata->xnslots, empty_slot_index);
-        return QF_NO_SPACE;
+        return QF_FULL;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
 
