@@ -426,7 +426,7 @@ __global__ void gpu_insert_supermer_block(KmerCountsMap<MAX_K> elems, SupermerBu
           gpu_insert_kmer(elems, hash_val, kmer, left_ext, right_ext, prev_left_ext, prev_right_ext, kmer_count, new_inserts,
                           dropped_inserts, ctg_kmers, use_qf, false);
         } else if (qf_insert_result == quotient_filter::QF_FULL) {
-          // printf(KLRED "WARNING [%s:%d]" KNORM " GQF is full\n", __FILE__, __LINE__);
+          printf(KLRED "WARNING [%s:%d]" KNORM " GQF is full\n", __FILE__, __LINE__);
           dropped_inserts++;
         }
       }
@@ -498,14 +498,14 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
   dstate->qf = nullptr;
   // max ratio of singletons to dups
   // FIXME: set this low to test out QF overflow robustness
-  uint64_t max_elems_qf = max_elems * 2;  //  5
+  uint64_t max_elems_qf = max_elems * 5;
   int nbits_qf = log2(max_elems_qf);
   if (nbits_qf == 0) use_qf = false;
   if (use_qf) {
     qf_bytes_used = quotient_filter::qf_estimate_memory(nbits_qf);
     double qf_avail_mem = gpu_avail_mem / 5;
     // if (!upcxx_rank_me)
-    //  cout << "QF nbits " << nbits_qf << " qf_avail_mem " << qf_avail_mem << " qf bytes used " << qf_bytes_used << "\n" ;
+    //   cout << "QF nbits " << nbits_qf << " qf_avail_mem " << qf_avail_mem << " qf bytes used " << qf_bytes_used << "\n";
     if (qf_bytes_used > qf_avail_mem) {
       // For debugging OOMs
       // size_t prev_bytes_used = qf_bytes_used;
@@ -518,12 +518,6 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
       if (nbits_qf == 0) nbits_qf = 1;
       qf_bytes_used = quotient_filter::qf_estimate_memory(nbits_qf);
       // if (!upcxx_rank_me) cout << "Corrected: QF nbits " << nbits_qf << " qf bytes used " << qf_bytes_used << "\n";
-      /*
-      // uncomment to debug if crashing with OOM when allocating
-      cout << "****** QF nbits corrected to " << nbits_qf << " from " << prev_nbits << "\n";
-      cout << "****** QF will take " << (qf_bytes_used / 1024 / 1024) << "MB instead of " << (prev_bytes_used / 1024 / 1024)
-           << "MB\n";
-      */
     } else {
       if (kmer_len >= 64) nbits_qf--;
     }
