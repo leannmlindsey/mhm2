@@ -1151,7 +1151,7 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
 
-      if (empty_slot_index / QF_SLOTS_PER_BLOCK > hash_bucket_index / QF_SLOTS_PER_BLOCK + 1) {
+      if (empty_slot_index / NUM_SLOTS_TO_LOCK > hash_bucket_index / NUM_SLOTS_TO_LOCK + 1) {
         // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
         qf->metadata->failed_inserts++;
         return QF_NO_SPACE;
@@ -1376,7 +1376,7 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
 
-      if (empty_slot_index / QF_SLOTS_PER_BLOCK > hash_bucket_index / QF_SLOTS_PER_BLOCK + 1) {
+      if (empty_slot_index / NUM_SLOTS_TO_LOCK > hash_bucket_index / NUM_SLOTS_TO_LOCK + 1) {
         // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket\n");
         qf->metadata->failed_inserts++;
         return QF_NO_SPACE;
