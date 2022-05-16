@@ -1027,7 +1027,7 @@ __host__ __device__ static inline uint64_t decode_counter(const QF *qf, uint64_t
 
   *remainder = rem = get_slot(qf, index);
 
-  if (is_runend(qf, index)) { /* Entire run is "0" */
+  if (is_runend(qf, index)) {  // Entire run is "0"
     *count = 1;
     return index;
   }
@@ -2233,7 +2233,6 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
 
   uint64_t hash_bucket_index = hash >> qf->metadata->key_remainder_bits;
   uint64_t lock_index = hash_bucket_index / NUM_SLOTS_TO_LOCK;
-
   // encode extensions outside of the lock
 
   lock_16(qf->runtimedata->locks, lock_index);
@@ -2243,6 +2242,7 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
 
   query = bigquery;
   int ret = 0;
+
   if (found == 0)
     ret = qf_insert(qf, hash, encoded, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
   else
@@ -2460,7 +2460,7 @@ __host__ __device__ uint64_t qf_query(const QF *qf, uint64_t key, uint64_t *valu
   int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(qf, hash_bucket_index - 1) + 1;
   if (runstart_index < hash_bucket_index) runstart_index = hash_bucket_index;
 
-  /* printf("MC RUNSTART: %02lx RUNEND: %02lx\n", runstart_index, runend_index); */
+  // printf("MC RUNSTART: %02lx RUNEND: %02lx\n", runstart_index, runend_index);
 
   uint64_t current_remainder, current_count, current_end;
   do {
@@ -2472,7 +2472,6 @@ __host__ __device__ uint64_t qf_query(const QF *qf, uint64_t key, uint64_t *valu
     }
     runstart_index = current_end + 1;
   } while (!is_runend(qf, current_end));
-
   return 0;
 }
 

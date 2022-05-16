@@ -415,10 +415,10 @@ __global__ void gpu_insert_supermer_block(KmerCountsMap<MAX_K> elems, SupermerBu
       bool update_only = (use_qf && !ctg_kmers);
       bool updated = gpu_insert_kmer(elems, hash_val, kmer, left_ext, right_ext, prev_left_ext, prev_right_ext, kmer_count,
                                      new_inserts, dropped_inserts, ctg_kmers, use_qf, update_only);
+
       if (update_only && !updated) {
         // not found in the hash table - look in the qf
-        quotient_filter::qf_returns qf_insert_result = quotient_filter::QF_ITEM_FOUND;
-        qf_insert_result = quotient_filter::insert_kmer(qf, hash_val, left_ext, right_ext, prev_left_ext, prev_right_ext);
+        auto qf_insert_result = quotient_filter::insert_kmer(qf, hash_val, left_ext, right_ext, prev_left_ext, prev_right_ext);
         if (qf_insert_result == quotient_filter::QF_ITEM_INSERTED) {
           num_unique_qf++;
           assert(prev_left_ext == '0' && prev_right_ext == '0');
@@ -498,7 +498,7 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
   dstate->qf = nullptr;
   // max ratio of singletons to dups
   // FIXME: set this low to test out QF overflow robustness
-  uint64_t max_elems_qf = max_elems * 5;  //  5
+  uint64_t max_elems_qf = max_elems * 2;  //  5
   int nbits_qf = log2(max_elems_qf);
   if (nbits_qf == 0) use_qf = false;
   if (use_qf) {

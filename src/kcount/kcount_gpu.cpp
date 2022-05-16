@@ -267,14 +267,20 @@ void HashTableInserter<MAX_K>::flush_inserts() {
     uint64_t num_unique_qf = reduce_one((uint64_t)insert_stats.num_unique_qf, op_fast_add, 0).wait();
     // SLOG_GPU("  QF found ", perc_str(num_unique_qf, num_inserts), " unique kmers ", num_inserts, "\n");
     SLOG_GPU("  QF filtered out ", perc_str(num_unique_qf - num_inserts, num_unique_qf), " singletons\n");
-    SLOG_GPU("  QF load factor ", state->ht_gpu_driver.get_qf_load_factor(), "\n");
-    auto qf_failures = reduce_one((uint64_t)state->ht_gpu_driver.get_qf_failures(), op_fast_add, 0).wait();
-    if (qf_failures) SWARN("GQF failed to insert ", qf_failures, " items (insufficient allocation for the GQF)");
+    auto qf_max_load = reduce_one(state->ht_gpu_driver.get_qf_load_factor(), op_fast_max, 0).wait();
+    auto qf_tot_load = reduce_one(state->ht_gpu_driver.get_qf_load_factor(), op_fast_add, 0).wait();
+    double qf_avg_load = (double)qf_tot_load / rank_n();
+    SLOG_GPU("  QF load factor ", fixed, setprecision(2), qf_avg_load, " avg ", qf_max_load, " max ", qf_avg_load / qf_max_load,
+             " balance\n");
+    uint64_t qf_failures = (uint64_t)state->ht_gpu_driver.get_qf_failures();
+    if (qf_failures) WARN("GQF failed to insert ", qf_failures, " items, load factor ", state->ht_gpu_driver.get_qf_load_factor());
+    auto all_qf_failures = reduce_one(qf_failures, op_fast_add, 0).wait();
+    if (all_qf_failures) SWARN("GQF failed to insert ", all_qf_failures, " items (insufficient allocation for the GQF)");
   }
   double load = (double)(insert_stats.new_inserts) / capacity;
   double avg_load_factor = reduce_one(load, op_fast_add, 0).wait() / rank_n();
   double max_load_factor = reduce_one(load, op_fast_max, 0).wait();
-  SLOG_GPU("  load factor ", fixed, setprecision(3), avg_load_factor, " avg, ", max_load_factor, " max\n");
+  SLOG_GPU("  load factor ", fixed, setprecision(2), avg_load_factor, " avg, ", max_load_factor, " max\n");
   SLOG_GPU("  final size per rank is ", insert_stats.new_inserts, " entries\n");
 }
 
