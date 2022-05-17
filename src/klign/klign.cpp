@@ -525,11 +525,11 @@ class Aligner {
           // finally extend this fetch to the end of the contig if a small percentage of the contig remains unfetched
           int edge_bases = ctg_seq.size() * 0.1;
           if (get_start < edge_bases) {
-              get_len += get_start;
-              get_start = 0;
+            get_len += get_start;
+            get_start = 0;
           }
           if (ctg_seq.size() - get_start - get_len < edge_bases) {
-              get_len = ctg_seq.size() - get_start;
+            get_len = ctg_seq.size() - get_start;
           }
 
           assert(get_start >= 0);
@@ -586,12 +586,12 @@ class Aligner {
     SLOG_VERBOSE("Hits on ctg cache: ", perc_str(msm_ctg_cache_hits.sum, msm_ctg_lookups.sum), " (my) cache size ",
                  ctg_cache.size(), " of ", ctg_cache.capacity(), " clobberings ", ctg_cache.get_clobberings(), "\n");
     SLOG_VERBOSE("Local contig hits bypassing cache: ", perc_str(msm_ctg_local_hits.sum, msm_ctg_lookups.sum), "\n");
-    SLOG("ctg_local_hits: ", msm_ctg_local_hits.to_string(), "\n");
-    SLOG("ctg_cache_hits: ", msm_ctg_cache_hits.to_string(), "\n");
-    SLOG("ctg_lookups: ", msm_ctg_lookups.to_string(), "\n");
-    SLOG("ctg_refetches: ", msm_ctg_refetches.to_string(), "\n");
-    SLOG("ctg_extended_fetches: ", msm_ctg_extended_fetches.to_string(), "\n");
-    SLOG("ctg_cache_clobberings: ", msm_ctg_clobberings.to_string(), "\n");
+    SLOG_VERBOSE("ctg_local_hits: ", msm_ctg_local_hits.to_string(), "\n");
+    SLOG_VERBOSE("ctg_cache_hits: ", msm_ctg_cache_hits.to_string(), "\n");
+    SLOG_VERBOSE("ctg_lookups: ", msm_ctg_lookups.to_string(), "\n");
+    SLOG_VERBOSE("ctg_refetches: ", msm_ctg_refetches.to_string(), "\n");
+    SLOG_VERBOSE("ctg_extended_fetches: ", msm_ctg_extended_fetches.to_string(), "\n");
+    SLOG_VERBOSE("ctg_cache_clobberings: ", msm_ctg_clobberings.to_string(), "\n");
   }
 };
 
