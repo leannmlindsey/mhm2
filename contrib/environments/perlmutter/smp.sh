@@ -1,16 +1,11 @@
 module load PrgEnv-gnu
-#module load PrgEnv-cray
-#module load PrgEnv-nvidia
-#module load nvidia
-module load gcc/9.3.0
 module load cmake
-module load cuda
+module load cpe-cuda
 module load cudatoolkit
+module swap gcc/11.2.0
 
-#export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-nvidia/bin:$PATH
-#export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-cray/bin:$PATH
-#export PATH=/global/common/software/m2878/shasta2105/upcxx/TESTING-PrgEnv-gnu/bin:$PATH
-export PATH=$SCRATCH/install-upcxx-2021.3-PrgEnv-gnu-9.3.0/bin:$PATH
+module use /global/common/software/m2878/perlmutter/modulefiles
+module load upcxx
 
 module list
 which cc
@@ -20,5 +15,9 @@ which gcc
 which nvcc
 which upcxx
 
-export MHM2_CMAKE_EXTRAS="-DCMAKE_C_COMPILER=$(which gcc) -DCMAKE_CXX_COMPILER=$(which g++) -DCMAKE_CUDA_COMPILER=$(which nvcc)"
-#export MHM2_CMAKE_EXTRAS="-DCMAKE_C_COMPILER=/opt/cray/pe/craype/2.7.9/bin/cc -DCMAKE_CXX_COMPILER=/opt/cray/pe/craype/2.7.9/bin/CC -DCMAKE_CUDA_COMPILER=$(which nvcc)"
+CC --version
+upcxx --version
+nvcc --version
+
+export UPCXX_NETWORK=smp
+export MHM2_CMAKE_EXTRAS="-DCMAKE_C_COMPILER=$(which cc) -DCMAKE_CXX_COMPILER=$(which CC) -DCMAKE_CUDA_COMPILER=$(which nvcc)"

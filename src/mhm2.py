@@ -463,7 +463,7 @@ def main():
 
     # special spawning for perlmutter that requires srun, not upcxx-run for now
     if 'NERSC_HOST' in os.environ and os.environ['NERSC_HOST'] == 'perlmutter':
-        cmd = ['srun', '-n', str(options.procs), '-N', str(num_nodes), '--ntasks-per-gpu=16', os.path.split(sys.argv[0])[0] + '/mhm2-mps-wrapper-perlmutter.sh']
+        cmd = ['srun', '-n', str(options.procs), '-N', str(num_nodes), '--gpus-per-node=4', os.path.split(sys.argv[0])[0] + '/mhm2-mps-wrapper-perlmutter.sh']
         if 'UPCXX_SHARED_HEAP_SIZE' not in os.environ:
             os.environ['UPCXX_SHARED_HEAP_SIZE'] = '450 MB'
         print("This is Perlmutter - executing srun directly and overriding UPCXX_SHARED_HEAP_SIZE=", os.environ['UPCXX_SHARED_HEAP_SIZE'], ":", cmd)
