@@ -612,7 +612,7 @@ __host__ __device__ static inline uint64_t find_first_empty_slot_verbose(QF *qf,
 */
 
 __host__ __device__ static inline uint64_t find_first_empty_slot(QF *qf, uint64_t from) {
-  uint64_t start_from = from;
+  // uint64_t start_from = from;
 
   do {
     int t = offset_lower_bound(qf, from);
@@ -630,15 +630,19 @@ __host__ __device__ static inline uint64_t find_first_empty_slot(QF *qf, uint64_
     from = from + t;
   } while (1);
 
-  uint64_t bucket_start_from = start_from / NUM_SLOTS_TO_LOCK;
-  uint64_t end_start_from = from / NUM_SLOTS_TO_LOCK;
+  // uint64_t bucket_start_from = start_from / NUM_SLOTS_TO_LOCK;
+  // uint64_t end_start_from = from / NUM_SLOTS_TO_LOCK;
 
-  // testing without this gate to check if we see speed improvements
-  if (end_start_from > bucket_start_from + 1) {
-    //fprintf(stderr, KLRED "WARNING: Find first empty ran over a bucket: %lu" KNORM "\n", end_start_from - bucket_start_from);
-    qf->metadata->failed_inserts++;
-    return qf->metadata->xnslots;
-  }
+  // The problem here was that from isn't the true home slot, it's the slot where the current insert is going to occur
+  // so this comparison can run over if from/NUM_SLOTS_TO_LOCK > true_home_slot /NUM_SLOTS_TO_LOCK
+  //  This option works fine, but drops some inserts even when there is sufficient space
+  //  if (end_start_from > bucket_start_from) {
+  //  This option with +1 causes illegal memory accesses elsewhere
+  //  if (end_start_from > bucket_start_from + 1) {
+  //    // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
+  //    qf->metadata->failed_inserts++;
+  //    return qf->metadata->xnslots;
+  //  }
 
   return from;
 }
@@ -1023,7 +1027,7 @@ __host__ __device__ static inline uint64_t decode_counter(const QF *qf, uint64_t
 
   *remainder = rem = get_slot(qf, index);
 
-  if (is_runend(qf, index)) { /* Entire run is "0" */
+  if (is_runend(qf, index)) {  // Entire run is "0"
     *count = 1;
     return index;
   }
@@ -1146,8 +1150,16 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
 
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
+
+      if (empty_slot_index / NUM_SLOTS_TO_LOCK > hash_bucket_index / NUM_SLOTS_TO_LOCK + 1) {
+        // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
+        qf->metadata->failed_inserts++;
+        return QF_FULL;
+      }
+
       if (empty_slot_index >= qf->metadata->xnslots) {
-        //printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
+        printf(KLRED "WARNING [%s:%d]" KNORM "GQF ran out of space. Total xnslots is %lu, first empty slot is %lu\n", __FILE__,
+               __LINE__, qf->metadata->xnslots, empty_slot_index);
         return QF_FULL;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -1363,8 +1375,17 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
 
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
+
+      if (empty_slot_index / NUM_SLOTS_TO_LOCK > hash_bucket_index / NUM_SLOTS_TO_LOCK + 1) {
+        // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket\n");
+        qf->metadata->failed_inserts++;
+        return QF_NO_SPACE;
+      }
+
       if (empty_slot_index >= qf->metadata->xnslots) {
-        //printf("Ran out of space. Total xnslots is %lu, first empty slot is %lu\n", qf->metadata->xnslots, empty_slot_index);
+        // printf(KLRED "WARNING [%s:%d]" KNORM "GQF ran out of space. Total xnslots is %lu, first empty slot is %lu\n", __FILE__,
+        //        __LINE__, qf->metadata->xnslots, empty_slot_index);
+        qf->metadata->failed_inserts++;
         return QF_NO_SPACE;
       }
       shift_remainders(qf, insert_index, empty_slot_index);
@@ -1709,9 +1730,11 @@ __host__ void *qf_destroy(QF *qf) {
   if (qf->runtimedata->wait_times != NULL) free(qf->runtimedata->wait_times);
   if (qf->runtimedata->f_info.filepath != NULL) free(qf->runtimedata->f_info.filepath);
   free(qf->runtimedata);
+  /*
   if (qf->metadata != NULL && qf->metadata->failed_inserts > 0) {
-    fprintf(stderr, KLRED "WARNING: Insufficient memory for GQF - failed to insert %lld kmers" KNORM "\n", (long long int) qf->metadata->failed_inserts);
-  }
+    printf(KLRED "WARNING [%s:%d]" KNORM "Insufficient memory for GQF - failed to insert %lld kmers\n", __FILE__, __LINE__,
+           (long long int)qf->metadata->failed_inserts);
+  }*/
 
   return (void *)qf->metadata;
 }
@@ -1811,7 +1834,7 @@ __host__ int64_t qf_resize_malloc(QF *qf, uint64_t nslots) {
     qfi_next(&qfi);
     int ret = qf_insert(&new_qf, key, value, count, QF_NO_LOCK | QF_KEY_IS_HASH);
     if (ret < 0) {
-      printf("Failed to insert key: %ld into the new CQF.\n", key);
+      printf(KLRED "ERROR: Failed to insert key: %ld into the new CQF." KNORM "\n", key);
       return ret;
     }
     ret_numkeys++;
@@ -1848,7 +1871,7 @@ uint64_t qf_resize(QF *qf, uint64_t nslots, void *buffer, uint64_t buffer_len) {
     qfi_next(&qfi);
     int ret = qf_insert(&new_qf, key, value, count, QF_NO_LOCK | QF_KEY_IS_HASH);
     if (ret < 0) {
-      printf("Failed to insert key: %ld into the new CQF.\n", key);
+      printf(KLRED "Failed to insert key: %ld into the new CQF." KNORM "\n", key);
       abort();  // kill kernel with error
     }
   } while (!qfi_end(&qfi));
@@ -1933,10 +1956,8 @@ __host__ __device__ int qf_insert(QF *qf, uint64_t key, uint64_t value, uint64_t
 
   uint64_t hash = (key << qf->metadata->value_bits) | (value & BITMASK(qf->metadata->value_bits));
   // printf("Inside insert, new hash is recorded as %llu\n", hash);
-  int ret = QF_NO_SPACE;
-  if (count == 1) ret = insert1(qf, hash, flags);
   assert(count == 1);
-  return ret;
+  return insert1(qf, hash, flags);
 }
 /*------------------------
 GPU Modifications
@@ -2212,7 +2233,6 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
 
   uint64_t hash_bucket_index = hash >> qf->metadata->key_remainder_bits;
   uint64_t lock_index = hash_bucket_index / NUM_SLOTS_TO_LOCK;
-
   // encode extensions outside of the lock
 
   lock_16(qf->runtimedata->locks, lock_index);
@@ -2222,6 +2242,7 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
 
   query = bigquery;
   int ret = 0;
+
   if (found == 0)
     ret = qf_insert(qf, hash, encoded, 1, QF_NO_LOCK | QF_KEY_IS_HASH);
   else
@@ -2233,6 +2254,7 @@ __device__ qf_returns insert_kmer(QF *qf, uint64_t hash, char forward, char back
 
   if (found == 1) return QF_ITEM_FOUND;
   if (ret <= QF_NO_SPACE) return QF_FULL;
+  assert(ret >= 0);
   return QF_ITEM_INSERTED;
 }
 
@@ -2438,7 +2460,7 @@ __host__ __device__ uint64_t qf_query(const QF *qf, uint64_t key, uint64_t *valu
   int64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(qf, hash_bucket_index - 1) + 1;
   if (runstart_index < hash_bucket_index) runstart_index = hash_bucket_index;
 
-  /* printf("MC RUNSTART: %02lx RUNEND: %02lx\n", runstart_index, runend_index); */
+  // printf("MC RUNSTART: %02lx RUNEND: %02lx\n", runstart_index, runend_index);
 
   uint64_t current_remainder, current_count, current_end;
   do {
@@ -2450,7 +2472,6 @@ __host__ __device__ uint64_t qf_query(const QF *qf, uint64_t key, uint64_t *valu
     }
     runstart_index = current_end + 1;
   } while (!is_runend(qf, current_end));
-
   return 0;
 }
 
@@ -2520,6 +2541,19 @@ __host__ uint64_t host_qf_get_num_occupied_slots(const QF *qf) {
   CUDA_CHECK(cudaMallocHost((void **)&_metadata, sizeof(qfmetadata)));
   CUDA_CHECK(cudaMemcpy(_metadata, host_qf->metadata, sizeof(qfmetadata), cudaMemcpyDeviceToHost));
   uint64_t toReturn = _metadata->noccupied_slots;
+  CUDA_CHECK(cudaFreeHost(_metadata));
+  CUDA_CHECK(cudaFreeHost(host_qf));
+  return toReturn;
+}
+
+__host__ uint64_t host_qf_get_failures(const QF *qf) {
+  QF *host_qf;
+  CUDA_CHECK(cudaMallocHost((void **)&host_qf, sizeof(QF)));
+  CUDA_CHECK(cudaMemcpy(host_qf, qf, sizeof(QF), cudaMemcpyDeviceToHost));
+  qfmetadata *_metadata;
+  CUDA_CHECK(cudaMallocHost((void **)&_metadata, sizeof(qfmetadata)));
+  CUDA_CHECK(cudaMemcpy(_metadata, host_qf->metadata, sizeof(qfmetadata), cudaMemcpyDeviceToHost));
+  uint64_t toReturn = _metadata->failed_inserts;
   CUDA_CHECK(cudaFreeHost(_metadata));
   CUDA_CHECK(cudaFreeHost(host_qf));
   return toReturn;
@@ -2767,7 +2801,7 @@ void qf_merge(const QF *qfa, const QF *qfb, QF *qfc) {
 
   if (qfa->metadata->hash_mode != qfc->metadata->hash_mode && qfa->metadata->seed != qfc->metadata->seed &&
       qfb->metadata->hash_mode != qfc->metadata->hash_mode && qfb->metadata->seed != qfc->metadata->seed) {
-    fprintf(stderr, "Output QF and input QFs do not have the same hash mode or seed.\n");
+    printf("Output QF and input QFs do not have the same hash mode or seed.\n");
     exit(1);
   }
 
@@ -2810,7 +2844,7 @@ void qf_multi_merge(const QF *qf_arr[], int nqf, QF *qfr) {
   uint64_t smallest_key = UINT64_MAX;
   for (i = 0; i < nqf; i++) {
     if (qf_arr[i]->metadata->hash_mode != qfr->metadata->hash_mode && qf_arr[i]->metadata->seed != qfr->metadata->seed) {
-      fprintf(stderr, "Output QF and input QFs do not have the same hash mode or seed.\n");
+      printf("Output QF and input QFs do not have the same hash mode or seed.\n");
       exit(1);
     }
     qf_iterator_from_position(qf_arr[i], &qfi_arr[i], 0);
@@ -2871,7 +2905,7 @@ uint64_t qf_inner_product(const QF *qfa, const QF *qfb) {
   const QF *qf_mem, *qf_disk;
 
   if (qfa->metadata->hash_mode != qfb->metadata->hash_mode && qfa->metadata->seed != qfb->metadata->seed) {
-    fprintf(stderr, "Input QFs do not have the same hash mode or seed.\n");
+    printf("Input QFs do not have the same hash mode or seed.\n");
     exit(1);
   }
 
@@ -2904,7 +2938,7 @@ void qf_intersect(const QF *qfa, const QF *qfb, QF *qfr) {
 
   if (qfa->metadata->hash_mode != qfr->metadata->hash_mode && qfa->metadata->seed != qfr->metadata->seed &&
       qfb->metadata->hash_mode != qfr->metadata->hash_mode && qfb->metadata->seed != qfr->metadata->seed) {
-    fprintf(stderr, "Output QF and input QFs do not have the same hash mode or seed.\n");
+    printf("Output QF and input QFs do not have the same hash mode or seed.\n");
     exit(1);
   }
 

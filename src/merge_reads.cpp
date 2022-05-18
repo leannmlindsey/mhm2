@@ -175,8 +175,8 @@ static pair<uint64_t, int> estimate_num_reads(vector<string> &reads_fname_list, 
   max_read_len = fut_max_read_len.wait();
 
   timer.initate_exit_barrier();  // barrier ensures all have completed for next reduction
-  SLOG_VERBOSE("Found maximum read length of ", max_read_len, " and max estimated total ", estimated_total_records, " per rank\n");
-  return {estimated_total_records, max_read_len};
+  SLOG_VERBOSE("Found maximum read length of ", max_read_len, " and (rank 0's) max estimated total ", estimated_total_records, " per rank\n");
+  return {my_estimated_total_records, max_read_len};
 }
 
 // returns the number of mismatches if it is <= max or a number greater than max (but no the actual count)
