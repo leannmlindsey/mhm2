@@ -94,6 +94,10 @@ static void count_kmers(unsigned kmer_len, int qual_offset, vector<PackedReads *
   auto all_num_reads = reduce_one(num_reads, op_fast_add, 0).wait();
   auto all_raw_kmers = reduce_one(total_local_raw_kmers, op_fast_add, 0).wait();
   SLOG_VERBOSE("Processed a total of ", all_num_reads, " reads ", all_raw_kmers, " raw kmers\n");
+  auto avg_supermer_inserts = reduce_one(kmer_dht->get_num_supermer_inserts(), op_fast_add, 0).wait() / rank_n();
+  auto max_supermer_inserts = reduce_one(kmer_dht->get_num_supermer_inserts(), op_fast_max, 0).wait();
+  SLOG("Avg supermer inserts ", avg_supermer_inserts, " max ", max_supermer_inserts, " load ", setprecision(3), fixed,
+       (double)avg_supermer_inserts / max_supermer_inserts, "\n");
   auto all_num_bad_quals = reduce_one(num_bad_quals, op_fast_add, 0).wait();
   auto all_tot_read_len = reduce_one(tot_read_len, op_fast_add, 0).wait();
   if (all_num_bad_quals) SLOG_VERBOSE("Found ", perc_str(all_num_bad_quals, all_tot_read_len), " bad quality positions\n");
@@ -111,8 +115,8 @@ static void add_ctg_kmers(unsigned kmer_len, unsigned prev_kmer_len, Contigs &ct
   SeqBlockInserter<MAX_K> seq_block_inserter(0, kmer_dht->get_minimizer_len());
   barrier();
   DBG("After seq_block_inserter constructor, with ", ctgs.size(), " ctgs\n");
-  //WARN("After seq_block_inserter constructor, with ", ctgs.size(), " ctgs\n");
-  // estimate number of kmers from ctgs
+  // WARN("After seq_block_inserter constructor, with ", ctgs.size(), " ctgs\n");
+  //  estimate number of kmers from ctgs
   int64_t max_kmers = 0;
   for (auto &ctg : ctgs) {
     if (ctg.seq.length() > kmer_len) max_kmers += ctg.seq.length() - kmer_len + 1;
@@ -123,8 +127,8 @@ static void add_ctg_kmers(unsigned kmer_len, unsigned prev_kmer_len, Contigs &ct
   barrier();
   DBG("after kmer_dht->init_ctg_kmers\n");
   DBG("looping over ", ctgs.size(), " ctgs\n");
-  //WARN("after kmer_dht->init_ctg_kmers\n");
-  //WARN("looping over ", ctgs.size(), " ctgs\n");
+  // WARN("after kmer_dht->init_ctg_kmers\n");
+  // WARN("looping over ", ctgs.size(), " ctgs\n");
   for (auto it = ctgs.begin(); it != ctgs.end(); ++it) {
     auto ctg = it;
     progbar.update();
@@ -133,7 +137,7 @@ static void add_ctg_kmers(unsigned kmer_len, unsigned prev_kmer_len, Contigs &ct
     seq_block_inserter.process_seq(ctg->seq, ctg->get_uint16_t_depth(), kmer_dht);
   }
   DBG("after ctgs loop\n");
-  //WARN("after ctgs loop\n");
+  // WARN("after ctgs loop\n");
   seq_block_inserter.done_processing(kmer_dht);
   progbar.done();
   kmer_dht->flush_updates();
