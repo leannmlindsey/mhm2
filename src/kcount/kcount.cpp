@@ -96,7 +96,7 @@ static void count_kmers(unsigned kmer_len, int qual_offset, vector<PackedReads *
   SLOG_VERBOSE("Processed a total of ", all_num_reads, " reads ", all_raw_kmers, " raw kmers\n");
   auto avg_supermer_inserts = reduce_one(kmer_dht->get_num_supermer_inserts(), op_fast_add, 0).wait() / rank_n();
   auto max_supermer_inserts = reduce_one(kmer_dht->get_num_supermer_inserts(), op_fast_max, 0).wait();
-  SLOG("Avg supermer inserts ", avg_supermer_inserts, " max ", max_supermer_inserts, " load ", setprecision(3), fixed,
+  SLOG_VERBOSE("Avg supermer inserts ", avg_supermer_inserts, " max ", max_supermer_inserts, " load ", setprecision(3), fixed,
        (double)avg_supermer_inserts / max_supermer_inserts, "\n");
   auto all_num_bad_quals = reduce_one(num_bad_quals, op_fast_add, 0).wait();
   auto all_tot_read_len = reduce_one(tot_read_len, op_fast_add, 0).wait();
