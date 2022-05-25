@@ -251,7 +251,7 @@ class KmerMapExts {
       // reset variables for search
       slot = start_slot;
       for (int i = 1; i <= MAX_PROBE; i++) {
-        assert(kmer != keys[slot]); // FIXME? probe_lens[slot] != 0
+        assert(kmer != keys[slot]);  // FIXME? probe_lens[slot] != 0
         if (counts[slot].count == 1) {
           num_singleton_overrides++;
           keys[slot] = kmer;

@@ -228,9 +228,7 @@ void PackedReads::clear() {
 
 string PackedReads::get_fname() const { return fname; }
 
-unsigned PackedReads::get_max_read_len() const {
-  return max_read_len;
-}
+unsigned PackedReads::get_max_read_len() const { return max_read_len; }
 
 void PackedReads::set_max_read_len() {
   max_read_len = 0;
@@ -241,13 +239,13 @@ void PackedReads::set_max_read_len() {
 
 int64_t PackedReads::get_local_num_reads() const { return packed_reads.size(); }
 
-int64_t PackedReads::get_total_local_num_reads(const vector<PackedReads*> &packed_reads_list) {
-    int64_t total_local_num_reads = 0;
-    for(const PackedReads * pr: packed_reads_list) {
-      total_local_num_reads += pr->get_local_num_reads();
-    }
-    return total_local_num_reads;
+int64_t PackedReads::get_total_local_num_reads(const vector<PackedReads *> &packed_reads_list) {
+  int64_t total_local_num_reads = 0;
+  for (const PackedReads *pr : packed_reads_list) {
+    total_local_num_reads += pr->get_local_num_reads();
   }
+  return total_local_num_reads;
+}
 
 int PackedReads::get_qual_offset() { return qual_offset; }
 
@@ -379,4 +377,3 @@ uint64_t PackedReads::estimate_num_kmers(unsigned kmer_len, vector<PackedReads *
                (all_num_reads > 0 ? all_num_kmers * (all_tot_num_reads / all_num_reads) : 0), " kmers\n");
   return num_reads > 0 ? num_kmers * tot_num_reads / num_reads : 0;
 }
-
