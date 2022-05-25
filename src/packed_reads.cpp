@@ -228,7 +228,10 @@ void PackedReads::clear() {
 
 string PackedReads::get_fname() const { return fname; }
 
-unsigned PackedReads::get_max_read_len() const { return max_read_len; }
+unsigned PackedReads::get_max_read_len() const {
+  WARN("max read len ", max_read_len);
+  return max_read_len;
+}
 
 int64_t PackedReads::get_local_num_reads() const { return packed_reads.size(); }
 
