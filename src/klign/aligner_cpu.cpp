@@ -122,7 +122,9 @@ void set_sam_string(Aln &aln, string_view read_seq, string cigar) {
   // aln.sam_string += cigar + "\t*\t0\t0\t" + read_subseq + "\t*\t";
   // Don't output either the read sequence or quals - that causes the SAM file to bloat up hugely, and that info is already
   // available in the read files
-  aln.sam_string += cigar + "\t*\t0\t0\t*\t*\t";
+  aln.sam_string += cigar + "\t*\t0\t";
+  aln.sam_string += to_string(aln.cstop - aln.cstart + 1);
+  aln.sam_string += "\t*\t*\t";
   aln.sam_string +=
       "AS:i:" + to_string(aln.score1) + "\tNM:i:" + to_string(aln.mismatches) + "\tRG:Z:" + to_string(aln.read_group_id);
   // for debugging
