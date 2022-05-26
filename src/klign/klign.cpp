@@ -104,11 +104,13 @@ struct KmerAndCtgLoc {
   UPCXX_SERIALIZED_FIELDS(kmer, ctg_loc);
 };
 
+using CtgReadMap = HASH_TABLE<cid_t, vector<ReadAndCtgLoc>>;
+
 struct ReadRecord {
   string id;
   string seq;
 
-  HASH_TABLE<cid_t, ReadAndCtgLoc> aligned_ctgs_map;
+  CtgReadMap aligned_ctgs_map;
 
   ReadRecord(const string &id, const string &seq)
       : id(id)
@@ -400,160 +402,162 @@ class Aligner {
     t.stop();
   }
 
-  void compute_alns_for_read(HASH_TABLE<cid_t, ReadAndCtgLoc> *aligned_ctgs_map, const string &rname, const string &rseq_fw,
-                             int read_group_id) {
+  void compute_alns_for_read(CtgReadMap *aligned_ctgs_map, const string &rname, const string &rseq_fw, int read_group_id) {
     int rlen = rseq_fw.length();
     string rseq_rc;
     string tmp_ctg;
     for (auto &elem : *aligned_ctgs_map) {
       progress();
-      int pos_in_read = elem.second.pos_in_read;
-      bool read_kmer_is_rc = elem.second.read_is_rc;
-      CtgLoc ctg_loc = elem.second.ctg_loc;
-      char orient = '+';
-      string_view rseq_ptr;
-      if (ctg_loc.is_rc != read_kmer_is_rc) {
-        // it's revcomp in either contig or read, but not in both or neither
-        orient = '-';
-        pos_in_read = rlen - (kmer_len + pos_in_read);
-        if (rseq_rc.empty()) rseq_rc = revcomp(rseq_fw);
-        rseq_ptr = string_view(rseq_rc);
-      } else {
-        rseq_ptr = string_view(rseq_fw);
-      }
-      // calculate available bases before and after the seeded kmer
-      int ctg_bases_left_of_kmer = ctg_loc.pos_in_ctg;
-      int ctg_bases_right_of_kmer = ctg_loc.clen - ctg_bases_left_of_kmer - kmer_len;
-      int read_bases_left_of_kmer = pos_in_read;
-      int read_bases_right_of_kmer = rlen - kmer_len - pos_in_read;
-      int left_of_kmer = min(read_bases_left_of_kmer, ctg_bases_left_of_kmer);
-      int right_of_kmer = min(read_bases_right_of_kmer, ctg_bases_right_of_kmer);
-
-      int cstart = ctg_loc.pos_in_ctg - left_of_kmer;
-      int rstart = pos_in_read - left_of_kmer;
-      int overlap_len = left_of_kmer + kmer_len + right_of_kmer;
-
-      // use the whole read, to account for possible indels
-      string_view read_subseq = rseq_ptr.substr(0, rlen);
-
-      assert(cstart >= 0 && cstart + overlap_len <= ctg_loc.clen);
-      assert(overlap_len <= 2 * rlen);
-
-      string_view ctg_seq;
-      bool found = false;
-      bool on_node = ctg_loc.seq_gptr.is_local();
-#ifdef DEBUG
-      // test both on node and off node ctg cache
-      if (on_node) on_node = (ctg_loc.seq_gptr.where() % 2) == (rank_me() % 2);
-#endif
-      if (on_node) {
-        // on same node already
-        ctg_seq = string_view(ctg_loc.seq_gptr.local(), ctg_loc.clen);
-        ctg_local_hits++;
-        found = true;
-      } else {
-        ctg_lookups++;
-        auto it = ctg_cache.find(ctg_loc.cid);
-        auto get_start = cstart, get_len = overlap_len;
-        if (it != ctg_cache.end()) {
-          string &ctg_str = it->second;  // the actual underlying string, not view
-          ctg_seq = string_view(ctg_str.data(), ctg_str.size());
-          found = true;
-
-          // find the first and last blank within the overlap region on cached contig (if any)
-          for (int i = 0; i < overlap_len; i++) {
-            if (ctg_seq[get_start] == ' ') {
-              found = false;
-              break;
-            }
-            get_start++;
-            get_len--;
-          }
-          if (!found) {
-            ctg_extended_fetches++;
-            while (get_len > 0) {
-              if (ctg_seq[get_start + get_len - 1] == ' ') break;
-              get_len--;
-            }
-          }
+      for (auto &entry : elem.second) {
+        int pos_in_read = entry.pos_in_read;
+        bool read_kmer_is_rc = entry.read_is_rc;
+        CtgLoc ctg_loc = entry.ctg_loc;
+        char orient = '+';
+        string_view rseq_ptr;
+        if (ctg_loc.is_rc != read_kmer_is_rc) {
+          // it's revcomp in either contig or read, but not in both or neither
+          orient = '-';
+          pos_in_read = rlen - (kmer_len + pos_in_read);
+          if (rseq_rc.empty()) rseq_rc = revcomp(rseq_fw);
+          rseq_ptr = string_view(rseq_rc);
         } else {
-          auto itpair = ctg_cache.insert({ctg_loc.cid, string(ctg_loc.clen, ' ')});
-          if (itpair.second) {
-            // successful insert
-            it = itpair.first;
-            assert(it != ctg_cache.end());
+          rseq_ptr = string_view(rseq_fw);
+        }
+        // calculate available bases before and after the seeded kmer
+        int ctg_bases_left_of_kmer = ctg_loc.pos_in_ctg;
+        int ctg_bases_right_of_kmer = ctg_loc.clen - ctg_bases_left_of_kmer - kmer_len;
+        int read_bases_left_of_kmer = pos_in_read;
+        int read_bases_right_of_kmer = rlen - kmer_len - pos_in_read;
+        int left_of_kmer = min(read_bases_left_of_kmer, ctg_bases_left_of_kmer);
+        int right_of_kmer = min(read_bases_right_of_kmer, ctg_bases_right_of_kmer);
+
+        int cstart = ctg_loc.pos_in_ctg - left_of_kmer;
+        int rstart = pos_in_read - left_of_kmer;
+        int overlap_len = left_of_kmer + kmer_len + right_of_kmer;
+
+        // use the whole read, to account for possible indels
+        string_view read_subseq = rseq_ptr.substr(0, rlen);
+
+        assert(cstart >= 0 && cstart + overlap_len <= ctg_loc.clen);
+        assert(overlap_len <= 2 * rlen);
+
+        string_view ctg_seq;
+        bool found = false;
+        bool on_node = ctg_loc.seq_gptr.is_local();
+#ifdef DEBUG
+        // test both on node and off node ctg cache
+        if (on_node) on_node = (ctg_loc.seq_gptr.where() % 2) == (rank_me() % 2);
+#endif
+        if (on_node) {
+          // on same node already
+          ctg_seq = string_view(ctg_loc.seq_gptr.local(), ctg_loc.clen);
+          ctg_local_hits++;
+          found = true;
+        } else {
+          ctg_lookups++;
+          auto it = ctg_cache.find(ctg_loc.cid);
+          auto get_start = cstart, get_len = overlap_len;
+          if (it != ctg_cache.end()) {
             string &ctg_str = it->second;  // the actual underlying string, not view
             ctg_seq = string_view(ctg_str.data(), ctg_str.size());
+            found = true;
+
+            // find the first and last blank within the overlap region on cached contig (if any)
+            for (int i = 0; i < overlap_len; i++) {
+              if (ctg_seq[get_start] == ' ') {
+                found = false;
+                break;
+              }
+              get_start++;
+              get_len--;
+            }
+            if (!found) {
+              ctg_extended_fetches++;
+              while (get_len > 0) {
+                if (ctg_seq[get_start + get_len - 1] == ' ') break;
+                get_len--;
+              }
+            }
           } else {
-            // use the temporary buffer...
-            assert(found == false);
-            WARN("FIXME using temporary buffer for invalid cid: ", ctg_loc.cid, "\n");
-            tmp_ctg = string(ctg_loc.clen, ' ');
-            ctg_seq = string_view(tmp_ctg.data(), tmp_ctg.size());
-          }
-          if (fetched_ctgs.find(ctg_loc.cid) == fetched_ctgs.end()) {
-            fetched_ctgs.insert(ctg_loc.cid);
-          } else {
-            ctg_refetches++;
-          }
-        }
-        if (!found) {
-          if (ctg_seq.size() < cstart + overlap_len || ctg_seq.size() != ctg_loc.clen)
-            WARN("ctg_seq size mismatch size=", ctg_seq.size(), " cstart=", cstart, " overlap_len=", overlap_len,
-                 " ctg_loc=.cid=", ctg_loc.cid, " .clen=", ctg_loc.clen, " .pos=", ctg_loc.pos_in_ctg, "\n");
-          assert(ctg_seq.size() >= cstart + overlap_len);
-          assert(ctg_seq.size() == ctg_loc.clen);
-          // also get extra bordering blank bases on either side of the contig for negligable extra overhead and likely fewer rgets
-          const int extra_bases = 384;
-          for (int i = 0; i < extra_bases; i++) {
-            if (get_start == 0) break;
-            if (ctg_seq[get_start - 1] == ' ') {
-              get_start--;
-              get_len++;
+            auto itpair = ctg_cache.insert({ctg_loc.cid, string(ctg_loc.clen, ' ')});
+            if (itpair.second) {
+              // successful insert
+              it = itpair.first;
+              assert(it != ctg_cache.end());
+              string &ctg_str = it->second;  // the actual underlying string, not view
+              ctg_seq = string_view(ctg_str.data(), ctg_str.size());
             } else {
-              break;
+              // use the temporary buffer...
+              assert(found == false);
+              WARN("FIXME using temporary buffer for invalid cid: ", ctg_loc.cid, "\n");
+              tmp_ctg = string(ctg_loc.clen, ' ');
+              ctg_seq = string_view(tmp_ctg.data(), tmp_ctg.size());
+            }
+            if (fetched_ctgs.find(ctg_loc.cid) == fetched_ctgs.end()) {
+              fetched_ctgs.insert(ctg_loc.cid);
+            } else {
+              ctg_refetches++;
             }
           }
-          for (int i = 0; i < extra_bases; i++) {
-            if (get_start + get_len >= ctg_seq.size()) break;
-            if (ctg_seq[get_start + get_len] == ' ')
-              get_len++;
-            else
-              break;
-          }
+          if (!found) {
+            if (ctg_seq.size() < cstart + overlap_len || ctg_seq.size() != ctg_loc.clen)
+              WARN("ctg_seq size mismatch size=", ctg_seq.size(), " cstart=", cstart, " overlap_len=", overlap_len,
+                   " ctg_loc=.cid=", ctg_loc.cid, " .clen=", ctg_loc.clen, " .pos=", ctg_loc.pos_in_ctg, "\n");
+            assert(ctg_seq.size() >= cstart + overlap_len);
+            assert(ctg_seq.size() == ctg_loc.clen);
+            // also get extra bordering blank bases on either side of the contig for negligable extra overhead and likely fewer
+            // rgets
+            const int extra_bases = 384;
+            for (int i = 0; i < extra_bases; i++) {
+              if (get_start == 0) break;
+              if (ctg_seq[get_start - 1] == ' ') {
+                get_start--;
+                get_len++;
+              } else {
+                break;
+              }
+            }
+            for (int i = 0; i < extra_bases; i++) {
+              if (get_start + get_len >= ctg_seq.size()) break;
+              if (ctg_seq[get_start + get_len] == ' ')
+                get_len++;
+              else
+                break;
+            }
 
-          // finally extend this fetch to the end of the contig if a small percentage of the contig remains unfetched
-          int edge_bases = ctg_seq.size() * 0.1;
-          if (get_start < edge_bases) {
-            get_len += get_start;
-            get_start = 0;
-          }
-          if (ctg_seq.size() - get_start - get_len < edge_bases) {
-            get_len = ctg_seq.size() - get_start;
-          }
+            // finally extend this fetch to the end of the contig if a small percentage of the contig remains unfetched
+            int edge_bases = ctg_seq.size() * 0.1;
+            if (get_start < edge_bases) {
+              get_len += get_start;
+              get_start = 0;
+            }
+            if (ctg_seq.size() - get_start - get_len < edge_bases) {
+              get_len = ctg_seq.size() - get_start;
+            }
 
-          assert(get_start >= 0);
-          assert(get_start + get_len <= ctg_seq.size());
-          fetch_ctg_seqs_timer.start();
-          // write directly to the cached string in active scope (represented by the string view, so okay to const_cast)
-          rget(ctg_loc.seq_gptr + get_start, const_cast<char *>(ctg_seq.data()) + get_start, get_len).wait();
-          fetch_ctg_seqs_timer.stop();
-          assert(fetch_ctg_seqs_timer.get_count() > 0);
-          ctg_bytes_fetched += get_len;
-        } else {
-          ctg_cache_hits++;
+            assert(get_start >= 0);
+            assert(get_start + get_len <= ctg_seq.size());
+            fetch_ctg_seqs_timer.start();
+            // write directly to the cached string in active scope (represented by the string view, so okay to const_cast)
+            rget(ctg_loc.seq_gptr + get_start, const_cast<char *>(ctg_seq.data()) + get_start, get_len).wait();
+            fetch_ctg_seqs_timer.stop();
+            assert(fetch_ctg_seqs_timer.get_count() > 0);
+            ctg_bytes_fetched += get_len;
+          } else {
+            ctg_cache_hits++;
+          }
         }
-      }
-      // set the subsequence to be the overlap region on the contig
-      string_view ctg_subseq = string_view(ctg_seq.data() + cstart, overlap_len);
+        // set the subsequence to be the overlap region on the contig
+        string_view ctg_subseq = string_view(ctg_seq.data() + cstart, overlap_len);
 
-      assert(pos_in_read + kmer_len <= rseq_ptr.size() && "kmer fits in read");
-      assert(ctg_loc.pos_in_ctg + kmer_len <= ctg_seq.size() && "kmer fits in ctg");
-      assert(memcmp(rseq_ptr.data() + pos_in_read, ctg_seq.data() + ctg_loc.pos_in_ctg, kmer_len) == 0 &&
-             "kmer seed exact matches read and ctg");
-      align_read(rname, ctg_loc.cid, read_subseq, ctg_subseq, rstart, rlen, cstart, ctg_loc.clen, orient, overlap_len,
-                 read_group_id);
-      num_alns++;
+        assert(pos_in_read + kmer_len <= rseq_ptr.size() && "kmer fits in read");
+        assert(ctg_loc.pos_in_ctg + kmer_len <= ctg_seq.size() && "kmer fits in ctg");
+        assert(memcmp(rseq_ptr.data() + pos_in_read, ctg_seq.data() + ctg_loc.pos_in_ctg, kmer_len) == 0 &&
+               "kmer seed exact matches read and ctg");
+        align_read(rname, ctg_loc.cid, read_subseq, ctg_subseq, rstart, rlen, cstart, ctg_loc.clen, orient, overlap_len,
+                   read_group_id);
+        num_alns++;
+      }
     }
   }
 
@@ -695,8 +699,12 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
             num_excess_alns_reads++;
             continue;
           }
-          // this here ensures that we don't insert duplicate mappings
-          read_record->aligned_ctgs_map.insert({kmer_ctg_loc.ctg_loc.cid, {pos_in_read, read_is_rc, kmer_ctg_loc.ctg_loc}});
+          auto it = read_record->aligned_ctgs_map.find(kmer_ctg_loc.ctg_loc.cid);
+          if (it == read_record->aligned_ctgs_map.end()) {
+            auto new_it = read_record->aligned_ctgs_map.insert({kmer_ctg_loc.ctg_loc.cid, {}});
+            it = new_it.first;
+          }
+          it->second.push_back({pos_in_read, read_is_rc, kmer_ctg_loc.ctg_loc});
         }
       }
     });
