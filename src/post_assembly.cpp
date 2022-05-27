@@ -90,7 +90,7 @@ void post_assembly(int kmer_len, Contigs &ctgs, shared_ptr<Options> options, int
   stage_timers.alignments->start();
   auto max_kmer_store = options->max_kmer_store_mb * ONE_MB;
   double kernel_elapsed = find_alignments<MAX_K>(kmer_len, packed_reads_list, max_kmer_store, options->max_rpcs_in_flight, ctgs,
-                                                 alns, 4, rlen_limit, options->klign_kmer_cache, true, options->min_ctg_print_len);
+                                                 alns, 1, rlen_limit, options->klign_kmer_cache, true, options->min_ctg_print_len);
   stage_timers.kernel_alns->inc_elapsed(kernel_elapsed);
   stage_timers.alignments->stop();
   for (auto packed_reads : packed_reads_list) {
@@ -99,6 +99,7 @@ void post_assembly(int kmer_len, Contigs &ctgs, shared_ptr<Options> options, int
   packed_reads_list.clear();
   calculate_insert_size(alns, options->insert_size[0], options->insert_size[1], max_expected_ins_size);
   if (options->post_assm_aln) {
+    alns.dump_single_file("final_assembly.paf");
     alns.dump_sam_file("final_assembly.sam", options->reads_fnames, ctgs, options->min_ctg_print_len);
     SLOG("\n", KBLUE, "Aligned unmerged reads to final assembly: SAM file can be found at ", options->output_dir,
          "/final_assembly.sam", KNORM, "\n");

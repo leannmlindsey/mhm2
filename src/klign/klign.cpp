@@ -95,6 +95,7 @@ struct ReadAndCtgLoc {
   int pos_in_read;
   bool read_is_rc;  // FIXME  pack this bool better, if possible
   CtgLoc ctg_loc;
+  int cstart;
 };
 
 template <int MAX_K>
@@ -275,6 +276,21 @@ class KmerCtgDHT {
   }
 };
 
+static tuple<int, int, int> get_start_positions(int kmer_len, const CtgLoc &ctg_loc, int pos_in_read, int rlen) {
+  // calculate available bases before and after the seeded kmer
+  int ctg_bases_left_of_kmer = ctg_loc.pos_in_ctg;
+  int ctg_bases_right_of_kmer = ctg_loc.clen - ctg_bases_left_of_kmer - kmer_len;
+  int read_bases_left_of_kmer = pos_in_read;
+  int read_bases_right_of_kmer = rlen - kmer_len - pos_in_read;
+  int left_of_kmer = min(read_bases_left_of_kmer, ctg_bases_left_of_kmer);
+  int right_of_kmer = min(read_bases_right_of_kmer, ctg_bases_right_of_kmer);
+
+  int cstart = ctg_loc.pos_in_ctg - left_of_kmer;
+  int rstart = pos_in_read - left_of_kmer;
+  int overlap_len = left_of_kmer + kmer_len + right_of_kmer;
+  return {cstart, rstart, overlap_len};
+}
+
 class Aligner {
   int64_t num_alns;
   int64_t num_perfect_alns;
@@ -423,18 +439,7 @@ class Aligner {
         } else {
           rseq_ptr = string_view(rseq_fw);
         }
-        // calculate available bases before and after the seeded kmer
-        int ctg_bases_left_of_kmer = ctg_loc.pos_in_ctg;
-        int ctg_bases_right_of_kmer = ctg_loc.clen - ctg_bases_left_of_kmer - kmer_len;
-        int read_bases_left_of_kmer = pos_in_read;
-        int read_bases_right_of_kmer = rlen - kmer_len - pos_in_read;
-        int left_of_kmer = min(read_bases_left_of_kmer, ctg_bases_left_of_kmer);
-        int right_of_kmer = min(read_bases_right_of_kmer, ctg_bases_right_of_kmer);
-
-        int cstart = ctg_loc.pos_in_ctg - left_of_kmer;
-        int rstart = pos_in_read - left_of_kmer;
-        int overlap_len = left_of_kmer + kmer_len + right_of_kmer;
-
+        auto [cstart, rstart, overlap_len] = get_start_positions(kmer_len, ctg_loc, pos_in_read, rlen);
         // use the whole read, to account for possible indels
         string_view read_subseq = rseq_ptr.substr(0, rlen);
 
@@ -678,6 +683,7 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
     kmer_lists[target_rank].clear();
     auto fut_rpc_returned = fut_get_ctgs.then([target_rank, &kmer_read_map, &num_excess_alns_reads,
                                                &kmer_bytes_received](const vector<KmerAndCtgLoc<MAX_K>> kmer_ctg_locs) {
+      int kmer_len = Kmer<MAX_K>::get_k();
       // iterate through the kmers, each one has an associated ctg location
       for (auto &kmer_ctg_loc : kmer_ctg_locs) {
         kmer_bytes_received += sizeof(kmer_ctg_loc.ctg_loc) + sizeof(Kmer<MAX_K>);
@@ -700,11 +706,24 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
             continue;
           }
           auto it = read_record->aligned_ctgs_map.find(kmer_ctg_loc.ctg_loc.cid);
+          auto rlen = read_record->seq.length();
+          auto new_pos_in_read = (kmer_ctg_loc.ctg_loc.is_rc == read_is_rc ? pos_in_read : rlen - (kmer_len + pos_in_read));
+          auto [cstart, rstart, overlap_len] = get_start_positions(kmer_len, kmer_ctg_loc.ctg_loc, new_pos_in_read, rlen);
           if (it == read_record->aligned_ctgs_map.end()) {
-            auto new_it = read_record->aligned_ctgs_map.insert({kmer_ctg_loc.ctg_loc.cid, {}});
-            it = new_it.first;
+            auto new_it = read_record->aligned_ctgs_map.insert({kmer_ctg_loc.ctg_loc.cid, {}}).first;
+            new_it->second.push_back({pos_in_read, read_is_rc, kmer_ctg_loc.ctg_loc, cstart});
+          } else {
+            // when a cid for this read already exists in the map, check to see if the latest kmer position lies within a
+            // read length of an existing position, and if so, don't add this new kmer
+            bool overlaps = false;
+            for (auto &read_and_ctg_loc : it->second) {
+              if (cstart + rlen >= read_and_ctg_loc.cstart && cstart < read_and_ctg_loc.cstart + rlen) {
+                overlaps = true;
+                break;
+              }
+            }
+            if (!overlaps) it->second.push_back({pos_in_read, read_is_rc, kmer_ctg_loc.ctg_loc, cstart});
           }
-          it->second.push_back({pos_in_read, read_is_rc, kmer_ctg_loc.ctg_loc});
         }
       }
     });
@@ -816,7 +835,7 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
     aligner.flush_remaining(read_group_id);
     if (packed_reads->get_local_num_reads() > 0) align_file_timer.stop();
     auto fut = align_file_timer.reduce_timings().then([](ShTimings sh_align_file_timings) {
-      SLOG_VERBOSE("Alignment timings: ", sh_align_file_timings->to_string(true, true), "\n");
+      SLOG_VERBOSE(KLCYAN "Alignment timings: ", sh_align_file_timings->to_string(true, true), KNORM, "\n");
     });
     all_done = when_all(all_done, fut);
     read_group_id++;

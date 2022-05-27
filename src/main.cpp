@@ -64,7 +64,8 @@ void init_devices();
 void done_init_devices();
 
 void merge_reads(vector<string> reads_fname_list, int qual_offset, double &elapsed_write_io_t,
-                 vector<PackedReads *> &packed_reads_list, bool checkpoint, const string &adapter_fname, int min_kmer_len, int subsample_pct);
+                 vector<PackedReads *> &packed_reads_list, bool checkpoint, const string &adapter_fname, int min_kmer_len,
+                 int subsample_pct);
 
 int main(int argc, char **argv) {
   BaseTimer init_timer("upcxx::init");
@@ -350,7 +351,7 @@ int main(int argc, char **argv) {
 
   // post processing
   if (options->post_assm_aln || options->post_assm_only || options->post_assm_abundances) {
-    int kmer_len = 33;
+    int kmer_len = 21;
     if (options->post_assm_only && !options->ctgs_fname.empty()) ctgs.load_contigs(options->ctgs_fname);
     auto max_k = (kmer_len / 32 + 1) * 32;
 

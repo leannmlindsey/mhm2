@@ -150,7 +150,9 @@ CPUAligner::CPUAligner(bool compute_cigar)
                    .gap_extending = ALN_GAP_EXTENDING_COST,
                    .ambiguity = ALN_AMBIGUITY_COST};
   else
-    aln_scoring = {.match = 2, .mismatch = 4, .gap_opening = 4, .gap_extending = 2, .ambiguity = 1};
+    // aln_scoring = {.match = 2, .mismatch = 4, .gap_opening = 4, .gap_extending = 2, .ambiguity = 1};
+    //  these are BLAST default
+    aln_scoring = {.match = 2, .mismatch = 1, .gap_opening = 3, .gap_extending = 2, .ambiguity = 1};
   SLOG_VERBOSE("Alignment scoring parameters: ", aln_scoring.to_string(), "\n");
 
   // aligner construction: SSW internal defaults are 2 2 3 1
