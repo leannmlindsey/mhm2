@@ -2,8 +2,8 @@ module load PrgEnv-cray
 module load cmake
 module load cpe-cuda
 module load cudatoolkit
-module swap PrgEnv-cray/8.2.0
-module swap cce/13.0.1
+#module swap PrgEnv-cray/8.2.0
+#module swap cce/13.0.1
 
 module use /global/common/software/m2878/perlmutter/modulefiles
 module load upcxx
