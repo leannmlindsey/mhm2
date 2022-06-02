@@ -387,6 +387,8 @@ void shuffle_reads(int qual_offset, vector<PackedReads *> &packed_reads_list, Co
   for (auto packed_reads : packed_reads_list) delete packed_reads;
   packed_reads_list.clear();
   packed_reads_list.push_back(new PackedReads(qual_offset, *new_packed_reads));
+  packed_reads_list[0]->set_max_read_len();
+  assert(packed_reads_list.size() == 1);
   auto num_reads_received = new_packed_reads->size();
   double avg_num_received = (double)reduce_one(num_reads_received, op_fast_add, 0).wait() / rank_n();
   auto max_reads_received = reduce_one(num_reads_received, op_fast_max, 0).wait();
