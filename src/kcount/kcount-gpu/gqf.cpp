@@ -67,6 +67,10 @@ namespace quotient_filter {
 #define MAX_DEPTH 16
 #define SELECT_BOUND 32
 
+#define DROP_ON_RUNEND 1
+
+#define RUNEND_CUTOFF 15
+
 #define DISTANCE_FROM_HOME_SLOT_CUTOFF 1000
 #define BILLION 1000000000L
 #define CUDA_CHECK(ans) gpuAssert((ans), __FILE__, __LINE__);
@@ -1115,6 +1119,16 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
     METADATA_WORD(qf, occupieds, hash_bucket_index) |= 1ULL << (hash_bucket_block_offset % 64);
   } else {
     uint64_t runend_index = run_end(qf, hash_bucket_index);
+
+    #if DROP_ON_RUNEND
+
+    if (runend_index - hash_bucket_index >= RUNEND_CUTOFF){
+      //printf("Dropping\n");
+      return QF_FULL;
+    }
+
+    #endif
+    
     int operation = 0; /* Insert into empty bucket */
     uint64_t insert_index = runend_index + 1;
     uint64_t new_value = hash_remainder;
@@ -1230,6 +1244,18 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     // modify_metadata(&qf->runtimedata->pc_nelts, 1);
   } else {
     uint64_t runend_index = run_end(qf, hash_bucket_index);
+
+
+    #if DROP_ON_RUNEND
+
+    if (runend_index - hash_bucket_index >= RUNEND_CUTOFF){
+      //printf("Dropping\n");
+      return QF_FULL;
+    }
+
+    #endif
+
+
     int operation = 0; /* Insert into empty bucket */
     uint64_t insert_index = runend_index + 1;
     uint64_t new_value = hash_remainder;
