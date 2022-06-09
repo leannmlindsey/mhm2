@@ -69,7 +69,8 @@ namespace quotient_filter {
 
 #define DROP_ON_RUNEND 1
 
-#define RUNEND_CUTOFF 15
+//#define RUNEND_CUTOFF 15
+#define RUNEND_CUTOFF 5
 
 #define DISTANCE_FROM_HOME_SLOT_CUTOFF 1000
 #define BILLION 1000000000L
