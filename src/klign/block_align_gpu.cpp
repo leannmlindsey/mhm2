@@ -111,7 +111,7 @@ void init_aligner(AlnScoring &aln_scoring, int rlen_limit) {
     gpu_driver = new adept_sw::GPUDriver(local_team().rank_me(), local_team().rank_n(), (short)aln_scoring.match,
                                          (short)-aln_scoring.mismatch, (short)-aln_scoring.gap_opening,
                                          (short)-aln_scoring.gap_extending, rlen_limit, init_time);
-    SLOG_VERBOSE("Initialized adept_sw driver in ", init_time, " s\n");
+    SLOG_VERBOSE("Initialized GPU adept_sw driver in ", init_time, " s\n");
   }
 }
 
@@ -157,6 +157,7 @@ void kernel_align_block(CPUAligner &cpu_aligner, vector<Aln> &kernel_alns, vecto
     assert(kernel_alns.empty());
     // for now, the GPU alignment doesn't support cigars
     if (!cpu_aligner.ssw_filter.report_cigar && gpu_utils::gpus_present()) {
+      SLOG_VERBOSE("GPU align block\n");
       active_kernel_fut = gpu_align_block(aln_block_data, alns, cpu_aligner.ssw_filter.report_cigar, aln_kernel_timer);
     } else if (!gpu_utils::gpus_present()) {
       active_kernel_fut = cpu_aligner.ssw_align_block(aln_block_data, alns);
@@ -165,6 +166,7 @@ void kernel_align_block(CPUAligner &cpu_aligner, vector<Aln> &kernel_alns, vecto
       SWARN("FIXME Issue #49,#60 no cigars for gpu alignments\n");
       active_kernel_fut = gpu_align_block(aln_block_data, alns, cpu_aligner.ssw_filter.report_cigar, aln_kernel_timer);
 #else
+      SLOG_VERBOSE("CPU align block\n");
       active_kernel_fut = cpu_aligner.ssw_align_block(aln_block_data, alns);
 #endif
     }

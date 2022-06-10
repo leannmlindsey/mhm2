@@ -69,7 +69,6 @@ using upcxx::future;
 //
 // class Aln
 //
-
 Aln::Aln()
     : read_id("")
     , cid(-1)
@@ -110,10 +109,29 @@ Aln::Aln(const string &read_id, int64_t cid, int rstart, int rstop, int rlen, in
 // writes out in the format meraligner uses
 string Aln::to_string() const {
   ostringstream os;
+
+#ifdef PAF_OUTPUT_FORMAT
+  // this is the minimap2 PAF format
   os << read_id << "\t" << rstart + 1 << "\t" << rstop << "\t" << rlen << "\t"
      << "Contig" << cid << "\t" << cstart + 1 << "\t" << cstop << "\t" << clen << "\t" << (orient == '+' ? "Plus" : "Minus") << "\t"
      << score1 << "\t" << score2;
-  ;
+#elif BLAST6_OUTPUT_FORMAT
+  // this is blast6 output format
+  int gap_opens = 0;
+  int aln_len = rstop - rstart;
+  double perc_identical = 100.0 * (aln_len - mismatches) / aln_len;
+  os << read_id << "\t"
+     << "Contig" << cid << "\t" << std::fixed << std::setprecision(3) << perc_identical << "\t" << aln_len << "\t" << mismatches
+     << "\t" << gap_opens << "\t" << rstart + 1 << "\t" << rstop << "\t";
+  // subject start and end reversed when orientation is minus
+  if (orient == '+')
+    os << cstart + 1 << "\t" << cstop;
+  else
+    os << cstop << "\t" << cstart + 1;
+  // evalue and bitscore, which we don't have here
+  os << "\t0\t0";
+#endif
+
   return os.str();
 }
 

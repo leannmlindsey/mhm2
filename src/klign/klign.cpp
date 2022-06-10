@@ -337,7 +337,6 @@ class Aligner {
       max_clen = max((int64_t)cseq.size(), max_clen);
       max_rlen = max((int64_t)rseq.size(), max_rlen);
       int64_t num_alns = kernel_alns.size() + 1;
-      unsigned max_matrix_size = (max_clen + 1) * (max_rlen + 1);
       int64_t tot_mem_est = num_alns * (max_clen + max_rlen + 2 * sizeof(int) + 5 * sizeof(short));
       // contig is the ref, read is the query - done this way so that we can potentially do multiple alns to each read
       // this is also the way it's done in meraligner
