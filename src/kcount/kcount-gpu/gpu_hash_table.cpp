@@ -497,10 +497,10 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
   dstate = new HashTableDriverState();
   dstate->qf = nullptr;
   // max ratio of singletons to dups
-  // FIXME: set this low to test out QF overflow robustness
   uint64_t max_elems_qf = max_elems * 5;
   int nbits_qf = log2(max_elems_qf);
-  //nbits_qf = 23;
+  // set this with small-arctic.fq to 22 to test QF overflow - should hit load of 1.2
+  //nbits_qf = 22;
   if (!upcxx_rank_me) cout << KLRED << "Number of QF bits " << nbits_qf << KNORM << endl;
   if (nbits_qf == 0) use_qf = false;
   if (use_qf) {
