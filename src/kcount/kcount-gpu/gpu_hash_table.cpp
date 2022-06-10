@@ -501,7 +501,7 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
   int nbits_qf = log2(max_elems_qf);
   // set this with small-arctic.fq to 22 to test QF overflow - should hit load of 1.2
   //nbits_qf = 22;
-  if (!upcxx_rank_me) cout << KLRED << "Number of QF bits " << nbits_qf << KNORM << endl;
+  //if (!upcxx_rank_me) cout << KLRED << "Number of QF bits " << nbits_qf << KNORM << endl;
   if (nbits_qf == 0) use_qf = false;
   if (use_qf) {
     qf_bytes_used = quotient_filter::qf_estimate_memory(nbits_qf);
@@ -517,7 +517,7 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
       auto corrected_nbits_qf = log2(corrected_max_elems);
       if (corrected_nbits_qf >= nbits_qf) corrected_nbits_qf--;
       nbits_qf = corrected_nbits_qf;
-      if (!upcxx_rank_me) cout << KLRED << "Number of QF bits corrected to " << nbits_qf << KNORM << endl;
+      //if (!upcxx_rank_me) cout << KLRED << "Number of QF bits corrected to " << nbits_qf << KNORM << endl;
       // drop bits further for really long kmers because the space requirements for the qf relative to the ht go down
       if (kmer_len >= 96) nbits_qf--;
       if (nbits_qf == 0) nbits_qf = 1;
