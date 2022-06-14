@@ -94,52 +94,6 @@ int get_cigar_length(const string &cigar) {
   return base_count;
 }
 
-void set_sam_string(Aln &aln, string_view read_seq, string cigar) {
-  assert(aln.is_valid());
-  aln.sam_string = aln.read_id + "\t";
-  string tmp;
-  if (aln.orient == '-') {
-    aln.sam_string += "16\t";
-    if (read_seq != "*") {
-      tmp = revcomp(string(read_seq.data(), read_seq.size()));
-      read_seq = string_view(tmp.data(), tmp.size());
-    }
-    // reverse(read_quals.begin(), read_quals.end());
-  } else {
-    aln.sam_string += "0\t";
-  }
-  aln.sam_string += "Contig" + to_string(aln.cid) + "\t" + to_string(aln.cstart + 1) + "\t";
-  uint32_t mapq;
-  // for perfect match, set to same maximum as used by minimap or bwa
-  if (aln.score2 == 0) {
-    mapq = 60;
-  } else {
-    mapq = -4.343 * log(1 - (double)abs(aln.score1 - aln.score2) / (double)aln.score1);
-    mapq = (uint32_t)(mapq + 4.99);
-    mapq = mapq < 254 ? mapq : 254;
-  }
-  aln.sam_string += to_string(mapq) + "\t";
-  // aln.sam_string += cigar + "\t*\t0\t0\t" + read_subseq + "\t*\t";
-  // Don't output either the read sequence or quals - that causes the SAM file to bloat up hugely, and that info is already
-  // available in the read files
-  aln.sam_string += cigar + "\t*\t0\t";
-  aln.sam_string += to_string(aln.cstop - aln.cstart + 1);
-  aln.sam_string += "\t*\t*\t";
-  aln.sam_string +=
-      "AS:i:" + to_string(aln.score1) + "\tNM:i:" + to_string(aln.mismatches) + "\tRG:Z:" + to_string(aln.read_group_id);
-  // for debugging
-  // aln.sam_string += " rstart " + to_string(aln.rstart) + " rstop " + to_string(aln.rstop) + " cstop " + to_string(aln.cstop) +
-  //                  " clen " + to_string(aln.clen) + " alnlen " + to_string(aln.rstop - aln.rstart);
-  /*
-#ifdef DEBUG
-  // only used if we actually include the read seq and quals in the SAM, which we don't
-  int base_count = get_cigar_length(cigar);
-  if (base_count != read_seq.length())
-    DIE("number of bases in cigar != aln rlen, ", base_count, " != ", read_subseq.length(), "\nsam string ", aln.sam_string);
-#endif
-  */
-}
-
 CPUAligner::CPUAligner(bool compute_cigar)
     : ssw_aligner() {
   // default for normal alignments in the pipeline, but for final alignments, uses minimap2 defaults
@@ -150,9 +104,9 @@ CPUAligner::CPUAligner(bool compute_cigar)
                    .gap_extending = ALN_GAP_EXTENDING_COST,
                    .ambiguity = ALN_AMBIGUITY_COST};
   else
-    // these are BLAST defaults (https://www.arabidopsis.org/Blast/BLASToptions.jsp)
+    // these are BLASTN defaults (https://www.arabidopsis.org/Blast/BLASToptions.jsp) - except match is actually 2
     // there is no BLAST value for ambiguity
-    aln_scoring = {.match = 1, .mismatch = 3, .gap_opening = 5, .gap_extending = 2, .ambiguity = 1};
+    aln_scoring = {.match = 2, .mismatch = 3, .gap_opening = 5, .gap_extending = 2, .ambiguity = 1};
   SLOG_VERBOSE("Alignment scoring parameters: ", aln_scoring.to_string(), "\n");
 
   // aligner construction: SSW internal defaults are 2 2 3 1
@@ -165,27 +119,31 @@ CPUAligner::CPUAligner(bool compute_cigar)
 void CPUAligner::ssw_align_read(StripedSmithWaterman::Aligner &ssw_aligner, StripedSmithWaterman::Filter &ssw_filter, Alns *alns,
                                 AlnScoring &aln_scoring, Aln &aln, const string_view &cseq, const string_view &rseq,
                                 int read_group_id) {
+  // debugging with these alignments
+  // two alns for blast but only one for mhm (same cid <-> readid map)
+  // CP000510.1-10145/1      Contig18387     146     13      1       146     507     362
+  // CP000510.1-10145/1      Contig18387     144     17      1       144     189     61
+
   assert(aln.clen >= cseq.length() && "contig seq is contained within the greater contig");
   assert(aln.rlen >= rseq.length() && "read seq is contained with the greater read");
 
   StripedSmithWaterman::Alignment ssw_aln;
+
   // align query, ref, reflen
-  ssw_aligner.Align(cseq.data(), cseq.length(), rseq.data(), rseq.length(), ssw_filter, &ssw_aln,
+  ssw_aligner.Align(rseq.data(), rseq.length(), cseq.data(), cseq.length(), ssw_filter, &ssw_aln,
                     max((int)(rseq.length() / 2), 15));
-
-  aln.rstop = aln.rstart + ssw_aln.ref_end + 1;
-  aln.rstart += ssw_aln.ref_begin;
-  aln.cstop = aln.cstart + ssw_aln.query_end + 1;
-  aln.cstart += ssw_aln.query_begin;
-  if (aln.orient == '-') switch_orient(aln.rstart, aln.rstop, aln.rlen);
-
-  aln.score1 = ssw_aln.sw_score;
-  aln.score2 = ssw_aln.sw_score_next_best;
-  aln.mismatches = ssw_aln.mismatches;
-  aln.identity = (unsigned)100 * (unsigned)ssw_aln.sw_score / (unsigned)aln_scoring.match / (unsigned)aln.rlen;
-  aln.read_group_id = read_group_id;
-  if (ssw_filter.report_cigar) set_sam_string(aln, rseq, ssw_aln.cigar_string);
+  aln.set(ssw_aln.ref_begin, ssw_aln.ref_end, ssw_aln.query_begin, ssw_aln.query_end, ssw_aln.sw_score, ssw_aln.sw_score_next_best,
+          ssw_aln.mismatches, read_group_id);
+  if (ssw_filter.report_cigar) aln.set_sam_string(rseq, ssw_aln.cigar_string);
   alns->add_aln(aln);
+
+  if (ssw_filter.report_cigar && (aln.cid == 18387 && aln.read_id == "CP000510.1-10145/1")) {
+    cout << KLGREEN << "aln: " << aln.to_string() << KNORM << endl;
+    cout << KLGREEN << "rseq " << rseq << KNORM << endl;
+    cout << KLGREEN << "cseq " << cseq << KNORM << endl;
+    cout << KLGREEN << "ssw aln: ref begin " << ssw_aln.ref_begin << " ref_end " << ssw_aln.ref_end << " query begin "
+         << ssw_aln.query_begin << " query end " << ssw_aln.query_end << KNORM << endl;
+  }
 }
 
 void CPUAligner::ssw_align_read(Alns *alns, Aln &aln, const string &cseq, const string &rseq, int read_group_id) {

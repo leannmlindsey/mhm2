@@ -57,10 +57,8 @@ using namespace upcxx;
 using namespace upcxx_utils;
 
 bool bad_alignment(Aln *aln) {
-  if (aln->rstart > KLIGN_UNALIGNED_THRES) return true;
-  if (aln->rlen - aln->rstop > KLIGN_UNALIGNED_THRES) return true;
-  // with match and mismatch scores of 1 this means at most two errors
-  if (aln->score1 < aln->rlen - 2) return true;
+  // with match and mismatch scores of 2 this means at most two errors
+  if (aln->score1 < aln->rlen - 4) return true;
   return false;
 }
 

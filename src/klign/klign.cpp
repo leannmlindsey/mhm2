@@ -328,10 +328,9 @@ class Aligner {
       int cstop = cstart + overlap_len;
       if (orient == '-') switch_orient(rstart, rstop, rlen);
       int score1 = overlap_len * cpu_aligner.aln_scoring.match;
-      int identity = 100 * score1 / cpu_aligner.aln_scoring.match / rlen;
-      Aln aln(rname, cid, rstart, rstop, rlen, cstart, cstop, clen, orient, score1, 0, identity, 0, read_group_id);
+      Aln aln(rname, cid, rstart, rstop, rlen, cstart, cstop, clen, orient, score1, 0, 0, read_group_id);
       assert(aln.is_valid());
-      if (cpu_aligner.ssw_filter.report_cigar) set_sam_string(aln, rseq, to_string(overlap_len) + "=");  // exact match '=' not 'M'
+      if (cpu_aligner.ssw_filter.report_cigar) aln.set_sam_string(rseq, to_string(overlap_len) + "=");  // exact match '=' not 'M'
       alns->add_aln(aln);
     } else {
       max_clen = max((int64_t)cseq.size(), max_clen);
@@ -675,7 +674,7 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
   auto nnodes = rank_n() / lranks;
   for (auto target_rank : upcxx_utils::foreach_rank_by_node()) {  // stagger by rank_me, round robin by node
     progress();
-    // skip targets that have no ctgs - this should reduce communication at scale
+    // skip targets that have no ctgs - this should reduce communication at scaleContig48045
     if (kmer_lists[target_rank].empty()) continue;
     kmer_bytes_sent += kmer_lists[target_rank].size() * sizeof(Kmer<MAX_K>);
     auto fut_get_ctgs = kmer_ctg_dht.get_ctgs_with_kmers(target_rank, kmer_lists[target_rank]);
@@ -859,7 +858,7 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
   SLOG_VERBOSE("Parsed ", tot_num_reads, " reads, with ", num_seeds_fut.wait(), " seeds\n");
   auto tot_num_alns = aligner.get_num_alns();
   SLOG_VERBOSE("Found ", tot_num_alns, " alignments of which ", perc_str(aligner.get_num_perfect_alns(), tot_num_alns),
-               " are perfect\n");
+               " are perfect and ", perc_str(alns.get_num_bad(), tot_num_alns), " are bad\n");
   auto tot_excess_alns_reads = num_excess_alns_reads_fut.wait();
   if (num_excess_alns_reads)
     SLOG_VERBOSE("Dropped ", tot_excess_alns_reads, " reads because of alignments in excess of ", KLIGN_MAX_ALNS_PER_READ, "\n");

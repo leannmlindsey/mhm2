@@ -75,22 +75,15 @@ static upcxx::future<> gpu_align_block(shared_ptr<AlignBlockData> aln_block_data
     auto aln_results = gpu_driver->get_aln_results();
 
     for (int i = 0; i < aln_block_data->kernel_alns.size(); i++) {
-      // progress();
       Aln &aln = aln_block_data->kernel_alns[i];
-      aln.rstop = aln.rstart + aln_results.query_end[i] + 1;
-      aln.rstart += aln_results.query_begin[i];
-      aln.cstop = aln.cstart + aln_results.ref_end[i] + 1;
-      aln.cstart += aln_results.ref_begin[i];
-      if (aln.orient == '-') switch_orient(aln.rstart, aln.rstop, aln.rlen);
-      aln.score1 = aln_results.top_scores[i];
-      // FIXME: needs to be set to the second best
-      aln.score2 = 0;
-      // FIXME: need to get the mismatches
-      aln.mismatches = 0;  // ssw_aln.mismatches;
-      aln.identity = 100 * aln.score1 / aln_block_data->aln_scoring.match / aln.rlen;
-      aln.read_group_id = aln_block_data->read_group_id;
-      // FIXME: need to get cigar
-      if (report_cigar) set_sam_string(aln, "*", "*");  // FIXME until there is a valid:ssw_aln.cigar_string);
+      // FIXME: need to get the second best score
+      // FIXME: need to get the number of mismatches
+      aln.set(aln_results.ref_begin[i], aln_results.ref_end[i], aln_results.query_begin[i], aln_results.query_end[i],
+              aln_results.top_scores[i], 0, 0, aln_block_data->read_group_id);
+      if (report_cigar) {
+        SWARN("Trying to produce SAM outputs with GPU alignments, which is not supported");
+        aln.set_sam_string("*", "*");  // FIXME until there is a valid:ssw_aln.cigar_string);
+      }
       aln_block_data->alns->add_aln(aln);
     }
   });
