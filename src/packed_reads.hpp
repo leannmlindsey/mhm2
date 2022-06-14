@@ -149,6 +149,8 @@ class PackedReads {
 
   unsigned get_max_read_len() const;
 
+  void set_max_read_len();
+
   int64_t get_local_num_reads() const;
 
   static int64_t get_total_local_num_reads(const vector<PackedReads*> &packed_reads_list);

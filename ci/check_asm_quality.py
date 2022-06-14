@@ -59,7 +59,7 @@ def main():
         test_exec_shifter = which('shifter')
         test_exec_docker = which('docker')
         if test_exec_shifter:
-            shifter = ['shifter', '--image=robegan21/quast:latest']
+            shifter = ['shifter', '--image=robegan21/quast:latest', '--module=none']
             shifter.extend(cmd)
             cmd = shifter
         elif test_exec_docker:

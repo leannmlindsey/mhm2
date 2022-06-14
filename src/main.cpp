@@ -201,9 +201,9 @@ int main(int argc, char **argv) {
       SLOG_VERBOSE(KBLUE, "Cache used ", setprecision(2), fixed, get_size_str(free_mem - get_free_mem()), " memory on node 0",
                    KNORM, "\n");
     }
-    unsigned rlen_limit = 0;
+    int rlen_limit = 0;
     for (auto packed_reads : packed_reads_list) {
-      rlen_limit = max(rlen_limit, packed_reads->get_max_read_len());
+      rlen_limit = max(rlen_limit, (int)packed_reads->get_max_read_len());
       packed_reads->report_size();
     }
 
