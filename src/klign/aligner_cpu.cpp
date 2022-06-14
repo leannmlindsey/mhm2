@@ -120,9 +120,10 @@ void CPUAligner::ssw_align_read(StripedSmithWaterman::Aligner &ssw_aligner, Stri
                                 AlnScoring &aln_scoring, Aln &aln, const string_view &cseq, const string_view &rseq,
                                 int read_group_id) {
   // debugging with these alignments
-  // two alns for blast but only one for mhm (same cid <-> readid map)
-  // CP000510.1-10145/1      Contig18387     146     13      1       146     507     362
-  // CP000510.1-10145/1      Contig18387     144     17      1       144     189     61
+  // missing from mhm:
+  // CP000510.1-101195/2	Contig6043	96.667	150	5	0	1	150	109	258	1.44e-66	249
+  // probably too close to this one, which is found by mhm:
+  // CP000510.1-101195/2	Contig6043	92.708	96	7	0	6	101	1	96	1.54e-34	142
 
   assert(aln.clen >= cseq.length() && "contig seq is contained within the greater contig");
   assert(aln.rlen >= rseq.length() && "read seq is contained with the greater read");
@@ -136,14 +137,14 @@ void CPUAligner::ssw_align_read(StripedSmithWaterman::Aligner &ssw_aligner, Stri
           ssw_aln.mismatches, read_group_id);
   if (ssw_filter.report_cigar) aln.set_sam_string(rseq, ssw_aln.cigar_string);
   alns->add_aln(aln);
-
-  if (ssw_filter.report_cigar && (aln.cid == 18387 && aln.read_id == "CP000510.1-10145/1")) {
+  /*
+  if (ssw_filter.report_cigar && (aln.read_id == "CP000510.1-101195/2")) {
     cout << KLGREEN << "aln: " << aln.to_string() << KNORM << endl;
     cout << KLGREEN << "rseq " << rseq << KNORM << endl;
     cout << KLGREEN << "cseq " << cseq << KNORM << endl;
     cout << KLGREEN << "ssw aln: ref begin " << ssw_aln.ref_begin << " ref_end " << ssw_aln.ref_end << " query begin "
          << ssw_aln.query_begin << " query end " << ssw_aln.query_end << KNORM << endl;
-  }
+  }*/
 }
 
 void CPUAligner::ssw_align_read(Alns *alns, Aln &aln, const string &cseq, const string &rseq, int read_group_id) {

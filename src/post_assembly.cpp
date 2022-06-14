@@ -59,8 +59,7 @@ using std::shared_ptr;
 using std::string;
 using std::vector;
 
-template <int MAX_K>
-void post_assembly(int kmer_len, Contigs &ctgs, shared_ptr<Options> options, int max_expected_ins_size) {
+void post_assembly(Contigs &ctgs, shared_ptr<Options> options, int max_expected_ins_size) {
   auto loop_start_t = std::chrono::high_resolution_clock::now();
   SLOG(KBLUE, "_________________________", KNORM, "\n");
   SLOG(KBLUE, "Post processing", KNORM, "\n\n");
@@ -90,9 +89,11 @@ void post_assembly(int kmer_len, Contigs &ctgs, shared_ptr<Options> options, int
   stage_timers.alignments->start();
   auto max_kmer_store = options->max_kmer_store_mb * ONE_MB;
   bool compute_cigar = true;
+  int kmer_len = POST_ASM_ALN_K;
+  const int MAX_K = (POST_ASM_ALN_K + 31) / 32 * 32;
   double kernel_elapsed =
-      find_alignments<MAX_K>(kmer_len, packed_reads_list, max_kmer_store, options->max_rpcs_in_flight, ctgs, alns, 1, rlen_limit,
-                             options->klign_kmer_cache, compute_cigar, options->min_ctg_print_len);
+      find_alignments<MAX_K>(POST_ASM_ALN_K, packed_reads_list, max_kmer_store, options->max_rpcs_in_flight, ctgs, alns, 1,
+                             rlen_limit, options->klign_kmer_cache, compute_cigar, options->min_ctg_print_len);
   stage_timers.kernel_alns->inc_elapsed(kernel_elapsed);
   stage_timers.alignments->stop();
   for (auto packed_reads : packed_reads_list) {

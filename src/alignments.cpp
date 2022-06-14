@@ -324,7 +324,7 @@ void Alns::dump_sam_file(const string fname, const vector<string> &read_group_na
 
   all_done = when_all(all_done, of.close_async());
   all_done.wait();
-  of.report_timings().wait();
+  of.close_and_report_timings().wait();
 }
 
 int Alns::calculate_unmerged_rlen() {

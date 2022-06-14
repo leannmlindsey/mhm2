@@ -134,7 +134,10 @@ template <int MAX_K>
 class KmerCtgDHT {
   // maps a kmer to a contig - the first part of the pair is set to true if this is a conflict,
   // with a kmer mapping to multiple contigs
-  using local_kmer_map_t = HASH_TABLE<Kmer<MAX_K>, pair<bool, CtgLoc>>;
+
+  // FIXME: a kmer CAN map to multiple contigs for scaffolding or post-assembly alignment. This needs to be a vector not a pair.
+
+  using local_kmer_map_t = HASH_TABLE<Kmer<MAX_K>, vector<CtgLoc>>;
   using kmer_map_t = dist_object<local_kmer_map_t>;
   kmer_map_t kmer_map;
   vector<global_ptr<char>> global_ctg_seqs;
@@ -156,14 +159,9 @@ class KmerCtgDHT {
     kmer_store.set_update_func([&kmer_map = this->kmer_map,
                                 &num_dropped_seed_to_ctgs = this->num_dropped_seed_to_ctgs](KmerAndCtgLoc<MAX_K> kmer_and_ctg_loc) {
       CtgLoc ctg_loc = kmer_and_ctg_loc.ctg_loc;
-      const auto it = kmer_map->find(kmer_and_ctg_loc.kmer);
-      if (it == kmer_map->end()) {
-        kmer_map->insert({kmer_and_ctg_loc.kmer, {false, ctg_loc}});
-      } else {
-        // in this case, we have a conflict, i.e. the kmer maps to multiple contigs
-        it->second.first = true;
-        (*num_dropped_seed_to_ctgs)++;
-      }
+      auto it = kmer_map->find(kmer_and_ctg_loc.kmer);
+      if (it == kmer_map->end()) it = kmer_map->insert({kmer_and_ctg_loc.kmer, {}}).first;
+      it->second.push_back(ctg_loc);
     });
   }
 
@@ -235,10 +233,9 @@ class KmerCtgDHT {
             assert(kmer.is_valid());
             const auto it = kmer_map->find(kmer);
             if (it == kmer_map->end()) continue;
-            // skip conflicts
-            if (it->second.first) continue;
-            // now add it
-            kmer_ctg_locs.push_back({kmer, it->second.second});
+            for (auto &ctg_loc : it->second) {
+              kmer_ctg_locs.push_back({kmer, ctg_loc});
+            }
           }
           DBG_VERBOSE("processed get_ctgs_with_kmers ", kmers.size(), " ", get_size_str(kmers.size() * sizeof(Kmer<MAX_K>)),
                       ", returning ", kmer_ctg_locs.size(), " ", get_size_str(kmer_ctg_locs.size() * sizeof(KmerAndCtgLoc<MAX_K>)),
@@ -257,15 +254,14 @@ class KmerCtgDHT {
     ProgressBar progbar(kmer_map->size(), "Dumping kmers to " + dump_fname);
     int64_t i = 0;
     for (auto &elem : *kmer_map) {
-      // FIXME this was broken when I got here.... made my best guess as to what the fields are supposed to be. -Rob
-      auto &pair_ctg_loc = elem.second;
-      auto &ctg_loc = pair_ctg_loc.second;
-      out_buf << elem.first << " " << ctg_loc.cid << " " << ctg_loc.clen << " " << ctg_loc.depth << " " << ctg_loc.pos_in_ctg << " "
-              << ctg_loc.is_rc << "\n";
-      i++;
-      if (!(i % 1000)) {
-        dump_file << out_buf.str();
-        out_buf = ostringstream();
+      for (auto &ctg_loc : elem.second) {
+        out_buf << elem.first << " " << ctg_loc.cid << " " << ctg_loc.clen << " " << ctg_loc.depth << " " << ctg_loc.pos_in_ctg
+                << " " << ctg_loc.is_rc << "\n";
+        i++;
+        if (!(i % 1000)) {
+          dump_file << out_buf.str();
+          out_buf = ostringstream();
+        }
       }
       progbar.update();
     }
@@ -632,6 +628,8 @@ static void build_alignment_index(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Contigs &ctgs
     Kmer<MAX_K>::get_kmers(kmer_ctg_dht.kmer_len, string_view(ctg->seq.data(), ctg->seq.size()), kmers, true);
     num_kmers += kmers.size();
     for (unsigned i = 0; i < kmers.size(); i++) {
+      // if (kmers[i].to_string() == "ACATCTACCGCTAGAGGATTA")
+      //   WARN("kmer ", kmers[i].to_string(), " found in contig ", ctg->id, " in position ", i);
       ctg_loc.pos_in_ctg = i;
       if (!kmers[i].is_valid()) continue;
       kmer_ctg_dht.add_kmer(kmers[i], ctg_loc);
@@ -662,10 +660,9 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
   // extract a list of kmers for each target rank
   auto kmer_lists = new vector<Kmer<MAX_K>>[rank_n()];
   for (auto &elem : kmer_read_map) {
-    auto &kmer_fw = elem.first;
-    Kmer<MAX_K> kmer_rc = kmer_fw.revcomp();
-    const Kmer<MAX_K> *kmer_lc = (kmer_rc < kmer_fw) ? &kmer_rc : &kmer_fw;
-    kmer_lists[kmer_ctg_dht.get_target_rank(*kmer_lc)].push_back(*kmer_lc);
+    auto &kmer = elem.first;
+    assert(kmer.is_least());
+    kmer_lists[kmer_ctg_dht.get_target_rank(kmer)].push_back(kmer);
   }
   get_ctgs_timer.start();
   future<> fut_serial_results = make_future();
@@ -690,7 +687,9 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
         assert(kmer_ctg_loc.kmer.is_least());
         auto kmer_read_map_it = kmer_read_map.find(kmer_ctg_loc.kmer);
         if (kmer_read_map_it == kmer_read_map.end()) DIE("Could not find kmer ", kmer_ctg_loc.kmer);
-        // this is a list of the reads
+        // if (kmer_ctg_loc.kmer.to_string() == "ACATCTACCGCTAGAGGATTA")
+        //   WARN("Got kmer ", kmer_ctg_loc.kmer.to_string(), " in ctg list for ctg ", kmer_ctg_loc.ctg_loc.cid);
+        //  this is a list of the reads
         auto &kmer_to_reads = kmer_read_map_it->second;
         // now add the ctg loc to all the reads
         for (auto &kmer_to_read : kmer_to_reads) {
@@ -698,6 +697,11 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
           assert(read_record->is_valid());
           int pos_in_read = kmer_to_read.pos_in_read;
           bool read_is_rc = kmer_to_read.is_rc;
+          /*
+          if (read_record->id == "CP000510.1-10249/2")
+            WARN("Found ", read_record->id, " <-> ", kmer_ctg_loc.ctg_loc.cid, " ctg pos ", kmer_ctg_loc.ctg_loc.pos_in_ctg,
+                 " ctg len ", kmer_ctg_loc.ctg_loc.clen, " is rc ", read_is_rc, " from kmer ", kmer_ctg_loc.kmer.to_string());
+                 */
           if (KLIGN_MAX_ALNS_PER_READ && read_record->aligned_ctgs_map.size() >= KLIGN_MAX_ALNS_PER_READ) {
             // too many mappings for this read, stop adding to it
             num_excess_alns_reads++;
@@ -714,12 +718,14 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
             // when a cid for this read already exists in the map, check to see if the latest kmer position lies within a
             // read length of an existing position, and if so, don't add this new kmer
             bool overlaps = false;
+            // if (read_record->id != "CP000510.1-101195/2" || kmer_ctg_loc.ctg_loc.cid != 6043) {
             for (auto &read_and_ctg_loc : it->second) {
               if (cstart + rlen >= read_and_ctg_loc.cstart && cstart < read_and_ctg_loc.cstart + rlen) {
                 overlaps = true;
                 break;
               }
             }
+            //}
             if (!overlaps) it->second.push_back({pos_in_read, read_is_rc, kmer_ctg_loc.ctg_loc, cstart});
           }
         }
@@ -805,6 +811,8 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
           is_rc = true;
         }
         assert(kmer_lc->is_least());
+        // if (kmer_lc->to_string() == "ACATCTACCGCTAGAGGATTA")
+        //   WARN("Found kmer ", kmer_lc->to_string(), " in read ", read_record->id, " at position ", i);
         auto it = kmer_read_map.find(*kmer_lc);
         if (it == kmer_read_map.end()) {
           auto pairit = kmer_read_map.insert({*kmer_lc, {}});
@@ -832,8 +840,8 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
     assert(kmer_read_map.empty());
     aligner.flush_remaining(read_group_id);
     if (packed_reads->get_local_num_reads() > 0) align_file_timer.stop();
-    auto fut = align_file_timer.reduce_timings().then([](ShTimings sh_align_file_timings) {
-      SLOG_VERBOSE(KLCYAN "Alignment timings: ", sh_align_file_timings->to_string(true, true), KNORM, "\n");
+    auto fut = align_file_timer.reduce_timings().then([read_fname = packed_reads->get_fname()](ShTimings sh_align_file_timings) {
+      SLOG_VERBOSE(KLCYAN "Alignment timings for ", read_fname, ": ", sh_align_file_timings->to_string(true, true), KNORM, "\n");
     });
     all_done = when_all(all_done, fut);
     read_group_id++;

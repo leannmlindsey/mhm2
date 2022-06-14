@@ -352,7 +352,7 @@ int main(int argc, char **argv) {
   // post processing
   if (options->post_assm_aln || options->post_assm_only || options->post_assm_abundances) {
     if (options->post_assm_only && !options->ctgs_fname.empty()) ctgs.load_contigs(options->ctgs_fname);
-    post_assembly<32>(21, ctgs, options, max_expected_ins_size);
+    post_assembly(ctgs, options, max_expected_ins_size);
     FastqReaders::close_all();
   }
 
