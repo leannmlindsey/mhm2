@@ -149,19 +149,31 @@ class KmerCtgDHT {
   size_t unique_kmer_seed_lookups = 0;
   unsigned kmer_len;
 
-  KmerCtgDHT(int max_store_size, int max_rpcs_in_flight)
+  KmerCtgDHT(int max_store_size, int max_rpcs_in_flight, bool allow_multi_kmers)
       : kmer_map({})
       , global_ctg_seqs({})
       , kmer_store()
       , num_dropped_seed_to_ctgs(0) {
     kmer_len = Kmer<MAX_K>::get_k();
     kmer_store.set_size("insert ctg seeds", max_store_size, max_rpcs_in_flight);
-    kmer_store.set_update_func([&kmer_map = this->kmer_map,
-                                &num_dropped_seed_to_ctgs = this->num_dropped_seed_to_ctgs](KmerAndCtgLoc<MAX_K> kmer_and_ctg_loc) {
+    kmer_store.set_update_func([&kmer_map = this->kmer_map, &num_dropped_seed_to_ctgs = this->num_dropped_seed_to_ctgs,
+                                allow_multi_kmers](KmerAndCtgLoc<MAX_K> kmer_and_ctg_loc) {
       CtgLoc ctg_loc = kmer_and_ctg_loc.ctg_loc;
       auto it = kmer_map->find(kmer_and_ctg_loc.kmer);
-      if (it == kmer_map->end()) it = kmer_map->insert({kmer_and_ctg_loc.kmer, {}}).first;
-      it->second.push_back(ctg_loc);
+      if (allow_multi_kmers) {
+        // FIXME: if we are doing contigging rounds, then all conflicts should be dropped
+        if (it == kmer_map->end()) it = kmer_map->insert({kmer_and_ctg_loc.kmer, {}}).first;
+        it->second.push_back(ctg_loc);
+      } else {
+        if (it == kmer_map->end()) {
+          it = kmer_map->insert({kmer_and_ctg_loc.kmer, {}}).first;
+          it->second.push_back(ctg_loc);
+        } else {
+          // there are conflicts so don't allow any kmer mappings
+          it->second.clear();
+          (*num_dropped_seed_to_ctgs)++;
+        }
+      }
     });
   }
 
@@ -904,7 +916,7 @@ double find_alignments(unsigned kmer_len, vector<PackedReads *> &packed_reads_li
   Kmer<MAX_K>::set_k(kmer_len);
   SLOG_VERBOSE("Aligning with seed size of ", kmer_len, "\n");
   int64_t all_num_ctgs = reduce_all(ctgs.size(), op_fast_add).wait();
-  KmerCtgDHT<MAX_K> kmer_ctg_dht(max_store_size, max_rpcs_in_flight);
+  KmerCtgDHT<MAX_K> kmer_ctg_dht(max_store_size, max_rpcs_in_flight, compute_cigar);
   barrier();
   build_alignment_index(kmer_ctg_dht, ctgs, min_ctg_len);
 #ifdef DEBUG
