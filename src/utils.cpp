@@ -352,4 +352,5 @@ void pin_numa() {
   pin_proc(my_cpu_list);
   SLOG("Pinning to ", numa_nodes_to_use, " NUMA domains each with ", cores_per_numa_node, " cores, ", hdw_threads_per_numa_node,
        " cpus: process 0 on node 0 is pinned to cpus ", get_proc_pin(), "\n");
+  DBG("Pinned to ", get_proc_pin(), "\n");
 }

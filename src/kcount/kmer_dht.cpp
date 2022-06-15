@@ -102,7 +102,7 @@ void Supermer::unpack() {
 int Supermer::get_bytes() { return seq.length() + sizeof(kmer_count_t); }
 
 template <int MAX_K>
-KmerDHT<MAX_K>::KmerDHT(uint64_t my_num_kmers, int max_kmer_store_bytes, int max_rpcs_in_flight, bool useHHSS, bool use_qf)
+KmerDHT<MAX_K>::KmerDHT(uint64_t my_num_kmers, size_t max_kmer_store_bytes, int max_rpcs_in_flight, bool useHHSS, bool use_qf)
     : local_kmers({})
     , ht_inserter({})
     , kmer_store()
@@ -246,6 +246,7 @@ void KmerDHT<MAX_K>::finish_updates() {
   double insert_time, kernel_time;
   ht_inserter->get_elapsed_time(insert_time, kernel_time);
   stage_timers.kernel_kmer_analysis->inc_elapsed(kernel_time);
+  LOG("Total time for local hashtables: insert_time=", insert_time, "kernel_time=", kernel_time, "\n");
 }
 
 // one line per kmer, format:
