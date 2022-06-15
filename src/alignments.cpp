@@ -250,10 +250,11 @@ void Alns::add_aln(Aln &aln) {
   // Currently, we just filter based on excessive unaligned overlap
   // Only filter out if the SAM string is not set, i.e. we are using the alns internally rather than for post processing output
   auto [unaligned_left, unaligned_right] = aln.get_unaligned_overlaps();
-  int aln_len = std::max(aln.rstop - aln.rstart, abs(aln.cstop - aln.cstart)) + unaligned_left + unaligned_right;
-  double identity = 100.0 * (aln_len - aln.mismatches) / aln_len;
+  auto unaligned = unaligned_left + unaligned_right;
+  int aln_len = std::max(aln.rstop - aln.rstart + unaligned, abs(aln.cstop - aln.cstart + unaligned));
+  double identity = 100.0 * (aln_len - aln.mismatches - unaligned) / aln_len;
   if (!aln.sam_string.empty() ||
-      (unaligned_left <= KLIGN_UNALIGNED_THRES && unaligned_right <= KLIGN_UNALIGNED_THRES))  // && identity >= 95))
+      (unaligned_left <= KLIGN_UNALIGNED_THRES && unaligned_right <= KLIGN_UNALIGNED_THRES && identity >= 95))
     alns.push_back(aln);
   else
     num_bad++;

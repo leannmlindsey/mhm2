@@ -660,8 +660,8 @@ static void build_alignment_index(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Contigs &ctgs
   SLOG_VERBOSE("Processed ", tot_num_kmers, " seeds from contigs, added ", num_kmers_in_ht, "\n");
   auto num_dropped_seed_to_ctgs = kmer_ctg_dht.get_num_dropped_seed_to_ctgs();
   if (num_dropped_seed_to_ctgs)
-    SLOG_VERBOSE("Dropped ", num_dropped_seed_to_ctgs, " non-unique seed-to-contig mappings (", setprecision(2), fixed,
-                 (100.0 * num_dropped_seed_to_ctgs / tot_num_kmers), "%)\n");
+    SLOG_VERBOSE("For k = ", kmer_ctg_dht.kmer_len, " dropped ", num_dropped_seed_to_ctgs, " non-unique seed-to-contig mappings (",
+                 setprecision(2), fixed, (100.0 * num_dropped_seed_to_ctgs / tot_num_kmers), "%)\n");
 }
 
 template <int MAX_K>
@@ -916,13 +916,15 @@ double find_alignments(unsigned kmer_len, vector<PackedReads *> &packed_reads_li
   Kmer<MAX_K>::set_k(kmer_len);
   SLOG_VERBOSE("Aligning with seed size of ", kmer_len, "\n");
   int64_t all_num_ctgs = reduce_all(ctgs.size(), op_fast_add).wait();
-  KmerCtgDHT<MAX_K> kmer_ctg_dht(max_store_size, max_rpcs_in_flight, compute_cigar);
+  bool allow_multi_kmers = compute_cigar;
+  KmerCtgDHT<MAX_K> kmer_ctg_dht(max_store_size, max_rpcs_in_flight, allow_multi_kmers);
   barrier();
   build_alignment_index(kmer_ctg_dht, ctgs, min_ctg_len);
 #ifdef DEBUG
 // kmer_ctg_dht.dump_ctg_kmers();
 #endif
-  double kernel_elapsed = do_alignments(kmer_ctg_dht, packed_reads_list, alns, rlen_limit, seed_space, all_num_ctgs, compute_cigar);
+  double kernel_elapsed = do_alignments(kmer_ctg_dht, packed_reads_list, alns, rlen_limit, seed_space, all_num_ctgs,
+                                        compute_cigar);
   barrier();
   auto num_alns = alns.size();
   auto num_dups = alns.get_num_dups();
