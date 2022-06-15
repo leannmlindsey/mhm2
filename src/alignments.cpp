@@ -254,7 +254,7 @@ void Alns::add_aln(Aln &aln) {
   int aln_len = std::max(aln.rstop - aln.rstart + unaligned, abs(aln.cstop - aln.cstart + unaligned));
   double identity = 100.0 * (aln_len - aln.mismatches - unaligned) / aln_len;
   if (!aln.sam_string.empty() ||
-      (unaligned_left <= KLIGN_UNALIGNED_THRES && unaligned_right <= KLIGN_UNALIGNED_THRES && identity >= 95))
+      (unaligned_left <= KLIGN_UNALIGNED_THRES && unaligned_right <= KLIGN_UNALIGNED_THRES))  // && identity >= 95))
     alns.push_back(aln);
   else
     num_bad++;
