@@ -426,7 +426,7 @@ __global__ void gpu_insert_supermer_block(KmerCountsMap<MAX_K> elems, SupermerBu
           gpu_insert_kmer(elems, hash_val, kmer, left_ext, right_ext, prev_left_ext, prev_right_ext, kmer_count, new_inserts,
                           dropped_inserts, ctg_kmers, use_qf, false);
         } else if (qf_insert_result == quotient_filter::QF_FULL) {
-          //printf(KLRED "WARNING [%s:%d]" KNORM " GQF is full\n", __FILE__, __LINE__);
+          // printf(KLRED "WARNING [%s:%d]" KNORM " GQF is full\n", __FILE__, __LINE__);
           dropped_inserts++;
         }
       }
@@ -500,8 +500,8 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
   uint64_t max_elems_qf = max_elems * 5;
   int nbits_qf = log2(max_elems_qf);
   // set this with small-arctic.fq to 22 to test QF overflow - should hit load of 1.2
-  //nbits_qf = 22;
-  //if (!upcxx_rank_me) cout << KLRED << "Number of QF bits " << nbits_qf << KNORM << endl;
+  // nbits_qf = 22;
+  // if (!upcxx_rank_me) cout << KLRED << "Number of QF bits " << nbits_qf << KNORM << endl;
   if (nbits_qf == 0) use_qf = false;
   if (use_qf) {
     qf_bytes_used = quotient_filter::qf_estimate_memory(nbits_qf);
@@ -517,8 +517,8 @@ void HashTableGPUDriver<MAX_K>::init(int upcxx_rank_me, int upcxx_rank_n, int km
       auto corrected_nbits_qf = log2(corrected_max_elems);
       if (corrected_nbits_qf >= nbits_qf) corrected_nbits_qf--;
       nbits_qf = corrected_nbits_qf;
-      //if (!upcxx_rank_me) cout << KLRED << "Number of QF bits corrected to " << nbits_qf << KNORM << endl;
-      // drop bits further for really long kmers because the space requirements for the qf relative to the ht go down
+      // if (!upcxx_rank_me) cout << KLRED << "Number of QF bits corrected to " << nbits_qf << KNORM << endl;
+      //  drop bits further for really long kmers because the space requirements for the qf relative to the ht go down
       if (kmer_len >= 96) nbits_qf--;
       if (nbits_qf == 0) nbits_qf = 1;
       qf_bytes_used = quotient_filter::qf_estimate_memory(nbits_qf);

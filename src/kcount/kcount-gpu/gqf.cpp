@@ -66,17 +66,8 @@ namespace quotient_filter {
 
 #define MAX_DEPTH 16
 #define SELECT_BOUND 32
-
-
-//results were counterintuitive so this cutoff has been disabled.
-// #define DROP_ON_RUNEND 0
-
-// #define RUNEND_CUTOFF 15
-
 #define DROP_ON_BIG_CLUSTER 1
-
 #define BIG_CLUSTER_DROPOFF 4096
-//#define RUNEND_CUTOFF 15
 
 #define DISTANCE_FROM_HOME_SLOT_CUTOFF 1000
 #define BILLION 1000000000L
@@ -1127,20 +1118,9 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
   } else {
     uint64_t runend_index = run_end(qf, hash_bucket_index);
 
-    // #if DROP_ON_RUNEND
-
-    // if (runend_index - hash_bucket_index >= RUNEND_CUTOFF){
-    //   //printf("Dropping\n");
-    //   return QF_FULL;
-    // }
-
-    // #endif
-    
     int operation = 0; /* Insert into empty bucket */
     uint64_t insert_index = runend_index + 1;
     uint64_t new_value = hash_remainder;
-
-    /* printf("RUNSTART: %02lx RUNEND: %02lx\n", runstart_index, runend_index); */
 
     uint64_t runstart_index = hash_bucket_index == 0 ? 0 : run_end(qf, hash_bucket_index - 1) + 1;
 
@@ -1172,22 +1152,18 @@ __host__ __device__ static inline qf_returns insert1_if_not_exists(QF *qf, __uin
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
 
-      #if DROP_ON_BIG_CLUSTER
+#if DROP_ON_BIG_CLUSTER
 
-      if (qf->metadata->qf_full){
+      if (qf->metadata->qf_full) {
         return QF_FULL;
       }
 
-      if (empty_slot_index - hash_bucket_index > BIG_CLUSTER_DROPOFF){
-
+      if (empty_slot_index - hash_bucket_index > BIG_CLUSTER_DROPOFF) {
         qf->metadata->qf_full = true;
         return QF_FULL;
-
       }
 
-
-
-      #endif
+#endif
 
       if (empty_slot_index / NUM_SLOTS_TO_LOCK > hash_bucket_index / NUM_SLOTS_TO_LOCK + 1) {
         // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket: %lu\n", end_start_from - bucket_start_from);
@@ -1268,17 +1244,6 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     // modify_metadata(&qf->runtimedata->pc_nelts, 1);
   } else {
     uint64_t runend_index = run_end(qf, hash_bucket_index);
-
-
-    // #if DROP_ON_RUNEND
-
-    // if (runend_index - hash_bucket_index >= RUNEND_CUTOFF){
-    //   //printf("Dropping\n");
-    //   return QF_FULL;
-    // }
-
-    // #endif
-
 
     int operation = 0; /* Insert into empty bucket */
     uint64_t insert_index = runend_index + 1;
@@ -1426,26 +1391,22 @@ __host__ __device__ static inline int insert1(QF *qf, __uint64_t hash, uint8_t r
     if (operation >= 0) {
       uint64_t empty_slot_index = find_first_empty_slot(qf, runend_index + 1);
 
-      #if DROP_ON_BIG_CLUSTER
+#if DROP_ON_BIG_CLUSTER
 
       // if (empty_slot_index - hash_bucket_index > BIG_CLUSTER_DROPOFF){
       //  return QF_FULL;
       // }
 
-      if (qf->metadata->qf_full){
+      if (qf->metadata->qf_full) {
         return QF_NO_SPACE;
       }
 
-      if (empty_slot_index - hash_bucket_index > BIG_CLUSTER_DROPOFF){
-
+      if (empty_slot_index - hash_bucket_index > BIG_CLUSTER_DROPOFF) {
         qf->metadata->qf_full = true;
         return QF_NO_SPACE;
-
       }
 
-
-
-      #endif
+#endif
 
       if (empty_slot_index / NUM_SLOTS_TO_LOCK > hash_bucket_index / NUM_SLOTS_TO_LOCK + 1) {
         // printf(KLRED "WARNING " KNORM "Find first empty ran over a bucket\n");
