@@ -670,6 +670,7 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
                        int64_t &num_excess_alns_reads, int &read_group_id, int64_t &kmer_bytes_sent, int64_t &kmer_bytes_received) {
   // get the contigs that match one read
   // extract a list of kmers for each target rank
+  LOG("read_group_id=", read_group_id, " kmer_bytes_sent=", kmer_bytes_sent, " kmer_bytes_received=", kmer_bytes_received, "\n");
   auto kmer_lists = new vector<Kmer<MAX_K>>[rank_n()];
   for (auto &elem : kmer_read_map) {
     auto &kmer = elem.first;
@@ -681,15 +682,18 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
   // fetch ctgs for each set of kmers from target ranks
   auto lranks = local_team().rank_n();
   auto nnodes = rank_n() / lranks;
+  static size_t get_ctg_count = 0;
   for (auto target_rank : upcxx_utils::foreach_rank_by_node()) {  // stagger by rank_me, round robin by node
     progress();
     // skip targets that have no ctgs - this should reduce communication at scaleContig48045
     if (kmer_lists[target_rank].empty()) continue;
     kmer_bytes_sent += kmer_lists[target_rank].size() * sizeof(Kmer<MAX_K>);
+    get_ctg_count++;
+    // DBG("Sending to ", target_rank, " kmer_lists.size=", kmer_lists[target_rank].size(), " get_ctg_count=", get_ctg_count, "\n");
     auto fut_get_ctgs = kmer_ctg_dht.get_ctgs_with_kmers(target_rank, kmer_lists[target_rank]);
     kmer_lists[target_rank].clear();
-    auto fut_rpc_returned = fut_get_ctgs.then([target_rank, &kmer_read_map, &num_excess_alns_reads,
-                                               &kmer_bytes_received](const vector<KmerAndCtgLoc<MAX_K>> kmer_ctg_locs) {
+    auto fut_rpc_returned = fut_get_ctgs.then([target_rank, &kmer_read_map, &num_excess_alns_reads, &kmer_bytes_received,
+                                               get_ctg_count = get_ctg_count](const vector<KmerAndCtgLoc<MAX_K>> kmer_ctg_locs) {
       int kmer_len = Kmer<MAX_K>::get_k();
       // iterate through the kmers, each one has an associated ctg location
       for (auto &kmer_ctg_loc : kmer_ctg_locs) {
@@ -742,12 +746,17 @@ static int align_kmers(KmerCtgDHT<MAX_K> &kmer_ctg_dht, Aligner &aligner,
           }
         }
       }
+      // DBG("Received from ", target_rank, " kmer_ctg_locs.size=", kmer_ctg_locs.size(), " kmer_bytes_received=",
+      // kmer_bytes_received, " get_ctg_count=", get_ctg_count, "\n");
     });
+    progress();
 
     upcxx_utils::limit_outstanding_futures(fut_rpc_returned, std::max(nnodes * 2, lranks * 4)).wait();
   }
 
   upcxx_utils::flush_outstanding_futures();
+  LOG("After flush: read_group_id=", read_group_id, " kmer_bytes_sent=", kmer_bytes_sent,
+      " kmer_bytes_received=", kmer_bytes_received, "\n");
 
   get_ctgs_timer.stop();
   delete[] kmer_lists;
@@ -788,14 +797,11 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
   int read_group_id = 0;
   HASH_TABLE<Kmer<MAX_K>, vector<KmerToRead>> kmer_read_map;
   kmer_read_map.reserve(KLIGN_CTG_FETCH_BUF_SIZE);
-  int64_t total_local_reads = 0;
+  int64_t total_local_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
+  ProgressBar progbar(total_local_reads, "Aligning reads to contigs");
+  BaseTimer align_file_timer("Align all files");
   for (auto packed_reads : packed_reads_list) {
     packed_reads->reset();
-    total_local_reads += packed_reads->get_local_num_reads();
-  }
-  ProgressBar progbar(total_local_reads, "Aligning reads to contigs");
-  for (auto packed_reads : packed_reads_list) {
-    BaseTimer align_file_timer("Align " + packed_reads->get_fname());
     if (packed_reads->get_local_num_reads() > 0) align_file_timer.start();
     string read_id, read_seq, quals;
     vector<ReadRecord *> read_records;
@@ -852,13 +858,14 @@ static double do_alignments(KmerCtgDHT<MAX_K> &kmer_ctg_dht, vector<PackedReads 
     assert(kmer_read_map.empty());
     aligner.flush_remaining(read_group_id);
     if (packed_reads->get_local_num_reads() > 0) align_file_timer.stop();
-    auto fut = align_file_timer.reduce_timings().then([read_fname = packed_reads->get_fname()](ShTimings sh_align_file_timings) {
-      SLOG_VERBOSE(KLCYAN "Alignment timings for ", read_fname, ": ", sh_align_file_timings->to_string(true, true), KNORM, "\n");
-    });
-    all_done = when_all(all_done, fut);
+    LOG("Done aligning ", packed_reads->get_fname(), "\n");
     read_group_id++;
   }
-  all_done = when_all(all_done, progbar.set_done());
+  LOG("Done aligning all files\n");
+  auto fut = align_file_timer.reduce_timings().then([](ShTimings sh_align_file_timings) {
+    SLOG_VERBOSE("Alignment timings: ", sh_align_file_timings->to_string(true, true), "\n");
+  });
+  all_done = when_all(all_done, fut, progbar.set_done());
   // free some memory
   HASH_TABLE<Kmer<MAX_K>, vector<KmerToRead>>().swap(kmer_read_map);
 
@@ -923,8 +930,7 @@ double find_alignments(unsigned kmer_len, vector<PackedReads *> &packed_reads_li
 #ifdef DEBUG
 // kmer_ctg_dht.dump_ctg_kmers();
 #endif
-  double kernel_elapsed = do_alignments(kmer_ctg_dht, packed_reads_list, alns, rlen_limit, seed_space, all_num_ctgs,
-                                        compute_cigar);
+  double kernel_elapsed = do_alignments(kmer_ctg_dht, packed_reads_list, alns, rlen_limit, seed_space, all_num_ctgs, compute_cigar);
   barrier();
   auto num_alns = alns.size();
   auto num_dups = alns.get_num_dups();

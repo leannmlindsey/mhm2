@@ -111,10 +111,7 @@ void contigging(int kmer_len, int prev_kmer_len, int &rlen_limit, vector<PackedR
 
   if (kmer_len < options->kmer_lens.back()) {
     if (kmer_len == options->kmer_lens.front()) {
-      size_t num_reads = 0;
-      for (auto packed_reads : packed_reads_list) {
-        num_reads += packed_reads->get_local_num_reads();
-      }
+      size_t num_reads = PackedReads::get_total_local_num_reads(packed_reads_list);
       auto avg_num_reads = reduce_one(num_reads, op_fast_add, 0).wait() / rank_n();
       auto max_num_reads = reduce_one(num_reads, op_fast_max, 0).wait();
       SLOG_VERBOSE("Avg reads per rank ", avg_num_reads, " max ", max_num_reads, " (balance ",

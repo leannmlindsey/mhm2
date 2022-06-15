@@ -57,14 +57,15 @@ AlignBlockData::AlignBlockData(vector<Aln> &_kernel_alns, vector<string> &_ctg_s
     , read_group_id(read_group_id)
     , aln_scoring(aln_scoring) {
   // copy/swap/reserve necessary data and configs
+  size_t batch_sz = std::max(kernel_alns.size(), _kernel_alns.size());
   kernel_alns.swap(_kernel_alns);
-  kernel_alns.reserve(_kernel_alns.size());
+  _kernel_alns.reserve(batch_sz);
   ctg_seqs.swap(_ctg_seqs);
-  ctg_seqs.reserve(_ctg_seqs.size());
+  _ctg_seqs.reserve(batch_sz);
   read_seqs.swap(_read_seqs);
-  read_seqs.reserve(_read_seqs.size());
+  _read_seqs.reserve(batch_sz);
   alns = make_shared<Alns>();
-  alns->reserve(_kernel_alns.size());
+  alns->reserve(kernel_alns.size());
 }
 
 int get_cigar_length(const string &cigar) {
@@ -151,7 +152,7 @@ void CPUAligner::ssw_align_read(Alns *alns, Aln &aln, const string &cseq, const 
   ssw_align_read(ssw_aligner, ssw_filter, alns, aln_scoring, aln, cseq, rseq, read_group_id);
 }
 
-upcxx::future<> CPUAligner::ssw_align_block(shared_ptr<AlignBlockData> aln_block_data, Alns *alns) {
+upcxx::future<> CPUAligner::ssw_align_block(shared_ptr<AlignBlockData> aln_block_data, Alns *alns, IntermittentTimer &aln_kernel_timer) {
   AsyncTimer t("ssw_align_block (thread)");
   future<> fut = upcxx_utils::execute_in_thread_pool(
       [&ssw_aligner = this->ssw_aligner, &ssw_filter = this->ssw_filter, &aln_scoring = this->aln_scoring, aln_block_data, t]() {
@@ -163,15 +164,17 @@ upcxx::future<> CPUAligner::ssw_align_block(shared_ptr<AlignBlockData> aln_block
           Aln &aln = aln_block_data->kernel_alns[i];
           string &cseq = aln_block_data->ctg_seqs[i];
           string &rseq = aln_block_data->read_seqs[i];
+          DBG_VERBOSE("aligning ", i, " of ", aln_block_data->kernel_alns.size(), " ", aln.read_id, "\n");
           ssw_align_read(ssw_aligner, ssw_filter, alns_ptr, aln_scoring, aln, cseq, rseq, aln_block_data->read_group_id);
         }
         t.stop();
       });
-  fut = fut.then([alns = alns, aln_block_data, t]() {
+  fut = fut.then([alns = alns, aln_block_data, t, &aln_kernel_timer]() {
     SLOG_VERBOSE("Finished CPU SSW aligning block of ", aln_block_data->kernel_alns.size(), " in ", t.get_elapsed(), " s (",
                  (t.get_elapsed() > 0 ? aln_block_data->kernel_alns.size() / t.get_elapsed() : 0.0), " aln/s)\n");
     DBG_VERBOSE("appending and returning ", aln_block_data->alns->size(), "\n");
     alns->append(*(aln_block_data->alns));
+    aln_kernel_timer += t;
   });
 
   return fut;

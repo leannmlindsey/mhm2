@@ -170,7 +170,9 @@ endif()
 # a bit of jiggery-pokery to get a list of all compile time definitions in the
 # code
 get_directory_property(dir_defs COMPILE_DEFINITIONS)
-set(all_defs "")
+get_directory_property(dir_compile_opts COMPILE_OPTIONS)
+string(TOUPPER "CMAKE_CXX_FLAGS_${CMAKE_BUILD_TYPE}" flags_var)
+set(all_defs "CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} ENABLE_CUDA=${ENABLE_CUDA} COMPILE_OPTIONS='${dir_compile_opts}' CMAKE_CXX_FLAGS='${CMAKE_CXX_FLAGS}' ${flags_var}='${${flags_var}}'")
 message("Definitions:")
 foreach(d ${dir_defs})
   message("  " ${d})
@@ -289,12 +291,6 @@ configure_file(mhm2.py ${CMAKE_CURRENT_BINARY_DIR}/mhm2.py)
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/mhm2.py
         DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
 install(PROGRAMS mhm2_parse_run_log.pl DESTINATION ${CMAKE_INSTALL_PREFIX}/bin)
-
-# special spawning script for Summit
-install(
-  PROGRAMS upcxx-run-summit
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
-  RENAME mhm2-upcxx-run-summit)
 
 # special spawning script for Perlmutter
 install(

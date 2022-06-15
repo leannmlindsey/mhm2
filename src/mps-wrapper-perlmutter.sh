@@ -15,6 +15,9 @@ then
   shift
 fi
 
+# select_cpu_device blocked by rank (not round robin) : # export CUDA_VISIBLE_DEVICES=$(( SLURM_LOCALID % 4 )) 
+export CUDA_VISIBLE_DEVICES=$(( 4 * SLURM_LOCALID / ${SLURM_TASKS_PER_NODE%%\(*} )) 
+
 "$@"
 # Quit MPS control daemon before exiting
 if [ $SLURM_LOCALID -eq 0 ]; then
