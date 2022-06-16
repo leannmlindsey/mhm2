@@ -69,7 +69,8 @@ struct Aln {
            int aln_read_group_id);
   void set_sam_string(std::string_view read_seq, string cigar);
   // writes out in the format meraligner uses
-  string to_string() const;
+  string to_paf_string() const;
+  string to_blast6_string() const;
   bool is_valid() const;
   std::pair<int, int> get_unaligned_overlaps() const;
 };
@@ -113,7 +114,7 @@ class Alns {
     for (const auto &aln : alns) {
       if (aln.clen < min_ctg_len) continue;
       if (!as_sam_format)
-        os << aln.to_string() << "\n";
+        os << aln.to_blast6_string() << "\n";
       else
         os << aln.sam_string << "\n";
     }

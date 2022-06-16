@@ -171,16 +171,18 @@ void Aln::set_sam_string(std::string_view read_seq, string cigar) {
   */
 }
 
-// writes out in the format meraligner uses
-string Aln::to_string() const {
+// minimap2 PAF output format
+string Aln::to_paf_string() const {
   ostringstream os;
-
-#ifdef PAF_OUTPUT_FORMAT
-  // this is the minimap2 PAF format
   os << read_id << "\t" << rstart + 1 << "\t" << rstop << "\t" << rlen << "\t"
      << "Contig" << cid << "\t" << cstart + 1 << "\t" << cstop << "\t" << clen << "\t" << (orient == '+' ? "Plus" : "Minus") << "\t"
      << score1 << "\t" << score2;
-#elif BLAST6_OUTPUT_FORMAT
+  return os.str();
+}
+
+// blast6 output format
+string Aln::to_blast6_string() const {
+  ostringstream os;
   // we don't track gap opens
   int gap_opens = 0;
   int aln_len = std::max(rstop - rstart, abs(cstop - cstart));
@@ -195,8 +197,6 @@ string Aln::to_string() const {
     os << cstop << "\t" << cstart + 1;
   // evalue and bitscore, which we don't have here
   os << "\t0\t0";
-#endif
-
   return os.str();
 }
 
@@ -243,7 +243,7 @@ void Alns::add_aln(Aln &aln) {
     }
   }
 #endif
-  if (!aln.is_valid()) DIE("Invalid alignment: ", aln.to_string());
+  if (!aln.is_valid()) DIE("Invalid alignment: ", aln.to_paf_string());
   assert(aln.is_valid());
   // FIXME: we'd like to require high value alignments, but can't do this because mismatch counts are not yet supported in ADEPT
   // if (aln.identity >= KLIGN_ALN_IDENTITY_CUTOFF)
