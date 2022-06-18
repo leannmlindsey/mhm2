@@ -22,9 +22,9 @@ N90                          621
 auN                          3293.2        
 L50                          3707          
 L90                          13853         
-# misassemblies              17            
-# misassembled contigs       17            
-Misassembled contigs length  49535         
+# misassemblies              19            
+# misassembled contigs       19            
+Misassembled contigs length  52000         
 # local misassemblies        13            
 # scaffold gap ext. mis.     0             
 # scaffold gap loc. mis.     0             
@@ -33,9 +33,9 @@ Misassembled contigs length  49535
 Unaligned length             0             
 Genome fraction (%)          24.936        
 Duplication ratio            1.000         
-# N's per 100 kbp            0.16          
-# mismatches per 100 kbp     133.82        
-# indels per 100 kbp         3.70          
+# N's per 100 kbp            0.5
+# mismatches per 100 kbp     140.0        
+# indels per 100 kbp         4.0
 Largest alignment            43029         
 Total aligned length         23593702      
 NA50                         1506          
