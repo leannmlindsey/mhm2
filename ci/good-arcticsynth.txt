@@ -4,7 +4,7 @@ Assembly                     final_assembly
 # contigs (>= 0 bp)          8003          
 # contigs (>= 1000 bp)       5470          
 # contigs (>= 5000 bp)       2183          
-# contigs (>= 10000 bp)      1345          
+# contigs (>= 10000 bp)      1340          
 # contigs (>= 25000 bp)      677           
 # contigs (>= 50000 bp)      396           
 Total length (>= 0 bp)       95066304      
@@ -14,17 +14,17 @@ Total length (>= 10000 bp)   79851083
 Total length (>= 25000 bp)   69447180      
 Total length (>= 50000 bp)   59853692      
 # contigs                    8003          
-Largest contig               1462257       
+Largest contig               1244692
 Total length                 95066304      
 Reference length             102521842     
-N50                          95366         
+N50                          91358
 N90                          5070          
-auN                          199098.1      
-L50                          220           
+auN                          187270.6
+L50                          223           
 L90                          2155          
-# misassemblies              72            
-# misassembled contigs       71            
-Misassembled contigs length  2811109       
+# misassemblies              81            
+# misassembled contigs       79            
+Misassembled contigs length  4532129
 # local misassemblies        27            
 # scaffold gap ext. mis.     0             
 # scaffold gap loc. mis.     0             
@@ -34,13 +34,13 @@ Unaligned length             729
 Genome fraction (%)          93.497        
 Duplication ratio            1.003         
 # N's per 100 kbp            0.01          
-# mismatches per 100 kbp     18.00         
-# indels per 100 kbp         0.98          
-# predicted rRNA genes       48 + 22 part  
-Largest alignment            1462257       
+# mismatches per 100 kbp     19.0
+# indels per 100 kbp         1.1
+# predicted rRNA genes       47 + 22 part  
+Largest alignment            1244692
 Total aligned length         95053234      
-NA50                         91358         
+NA50                         86480         
 NA90                         5028          
-auNA                         197974.6      
-LA50                         223           
+auNA                         185961.9
+LA50                         230           
 LA90                         2191          
