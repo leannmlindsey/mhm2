@@ -102,7 +102,7 @@ pair<int, int> calculate_insert_size(Alns &alns, int expected_ins_avg, int expec
 #ifdef DEBUG
           // i.e. when one read mate has two mappings to the same contig (i.e. repetitive region)
           // OR this can happen when the mapping is wildly wrong.  Keep a count an report it.
-          LOG("pair nums wrong: ", prev_pair_num, " ", pair_num, ", aln:", aln.to_string(), "\n");
+          LOG("pair nums wrong: ", prev_pair_num, " ", pair_num, ", aln:", aln.to_paf_string(), "\n");
 #endif
           prev_aln = nullptr;
           num_repetitive_conflicts++;
