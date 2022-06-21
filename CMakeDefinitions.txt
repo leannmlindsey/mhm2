@@ -122,6 +122,7 @@ add_definitions(-DALN_GAP_OPENING_COST=1)
 add_definitions(-DALN_GAP_EXTENDING_COST=1)
 add_definitions(-DALN_AMBIGUITY_COST=1)
 # BLASTN defaults
+# add_definitions(-DALN_MATCH_SCORE=2)
 # add_definitions(-DALN_MISMATCH_COST=3)
 # add_definitions(-DALN_GAP_OPENING_COST=5)
 # add_definitions(-DALN_GAP_EXTENDING_COST=2)
