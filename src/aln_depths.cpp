@@ -266,40 +266,26 @@ void compute_aln_depths(const string &fname, Contigs &ctgs, Alns &alns, int kmer
     */
     // convert to coords for use here
     assert(aln.is_valid());
-    auto cstart = aln.cstart;
-    auto cstop = aln.cstop;
-    if (aln.orient == '-') {
-      int tmp = cstart;
-      cstart = aln.clen - cstop;
-      cstop = aln.clen - tmp;
+    // set to -1 if this read is not merged
+    int aln_cstart_merge = -1, aln_cstop_merge = -1;
+    // FIXME: need to somehow communicate to the update func the range of double counting for a merged read.
+    // This is the area > length of read pair that is in the middle of the read
+    if (double_count_merged_region && aln.rlen > unmerged_rlen) {
+      // merged read
+      int merge_offset = (aln.rlen - unmerged_rlen) / 2;
+      aln_cstart_merge = (merge_offset > aln.rstart ? merge_offset - aln.rstart : 0) + aln.cstart;
+      int stop_merge = aln.rlen - merge_offset;
+      aln_cstop_merge = aln.cstop - (stop_merge < aln.rstop ? aln.rstop - stop_merge : 0);
+      // the aln may not include the merged region
+      if (aln_cstart_merge >= aln_cstop_merge) aln_cstart_merge = -1;
     }
-    int unaligned_left = min(aln.rstart, cstart);
-    int unaligned_right = min(aln.rlen - aln.rstop, aln.clen - cstop);
-    if (unaligned_left <= KLIGN_UNALIGNED_THRES && unaligned_right <= KLIGN_UNALIGNED_THRES) {
-      // set to -1 if this read is not merged
-      int aln_cstart_merge = -1, aln_cstop_merge = -1;
-      // FIXME: need to somehow communicate to the update func the range of double counting for a merged read.
-      // This is the area > length of read pair that is in the middle of the read
-      if (double_count_merged_region && aln.rlen > unmerged_rlen) {
-        // merged read
-        int merge_offset = (aln.rlen - unmerged_rlen) / 2;
-        aln_cstart_merge = (merge_offset > aln.rstart ? merge_offset - aln.rstart : 0) + aln.cstart;
-        int stop_merge = aln.rlen - merge_offset;
-        aln_cstop_merge = aln.cstop - (stop_merge < aln.rstop ? aln.rstop - stop_merge : 0);
-        // the aln may not include the merged region
-        if (aln_cstart_merge >= aln_cstop_merge) aln_cstart_merge = -1;
-      }
-      // as per MetaBAT analysis, ignore the 75 bases at either end because they are likely to be in error
-      auto adjusted_start = ::max(aln.cstart, edge_base_len);
-      auto adjusted_stop = ::min(aln.cstop, aln.clen - 1 - edge_base_len);
-      // DBG_VERBOSE("Sending update for ", aln.to_string(), " st=", adjusted_start, " end=", adjusted_stop, " edge_base_len=",
-      // edge_base_len,
-      //    "\n");
-      ctgs_depths.update_ctg_aln_depth(aln.cid, aln.read_group_id, adjusted_start, adjusted_stop, aln_cstart_merge,
-                                       aln_cstop_merge);
-    } else {
-      num_bad_overlaps++;
-    }
+    // as per MetaBAT analysis, ignore the 75 bases at either end because they are likely to be in error
+    auto adjusted_start = ::max(aln.cstart, edge_base_len);
+    auto adjusted_stop = ::min(aln.cstop, aln.clen - 1 - edge_base_len);
+    // DBG_VERBOSE("Sending update for ", aln.to_string(), " st=", adjusted_start, " end=", adjusted_stop, " edge_base_len=",
+    // edge_base_len,
+    //    "\n");
+    ctgs_depths.update_ctg_aln_depth(aln.cid, aln.read_group_id, adjusted_start, adjusted_stop, aln_cstart_merge, aln_cstop_merge);
     upcxx::progress();
   }
   auto fut_progbar = progbar.set_done();
@@ -325,13 +311,13 @@ void compute_aln_depths(const string &fname, Contigs &ctgs, Alns &alns, int kmer
   }
   // FIXME: the depths need to be in the same order as the contigs in the final_assembly.fasta file. This is an inefficient
   // way of ensuring that
-  
+
   future<> fut_chain = make_future();
   for (auto it = ctgs.begin(); it != ctgs.end(); it++) {
     auto &ctg = *it;
     if ((int)ctg.seq.length() < min_ctg_len) continue;
     auto fut_rg_avg_vars = ctgs_depths.fut_get_depth(ctg.id);
-    fut_chain = when_all(fut_chain,fut_rg_avg_vars).then([&sh_of, it=it, &num_read_groups](vector<AvgVar<float>> rg_avg_vars) {
+    fut_chain = when_all(fut_chain, fut_rg_avg_vars).then([&sh_of, it = it, &num_read_groups](vector<AvgVar<float>> rg_avg_vars) {
       auto &ctg = *it;
       if (sh_of) {
         *sh_of << "Contig" << ctg.id << "\t" << ctg.seq.length() << "\t" << rg_avg_vars[num_read_groups].avg;

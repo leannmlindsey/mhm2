@@ -327,7 +327,6 @@ void adept_sw::GPUDriver::run_kernel_forwards(std::vector<std::string>& reads, s
     char* seqptrA = driver_state->strA + offsetSumA;
     memcpy(seqptrA, sequencesA[i].c_str(), sequencesA[i].size());
     char* seqptrB = driver_state->strB + offsetSumB;
-    assert(offsetSumB + sequencesB[i].size() <= driver_state->min_rlen);
     memcpy(seqptrB, sequencesB[i].c_str(), sequencesB[i].size());
     offsetSumA += sequencesA[i].size();
     offsetSumB += sequencesB[i].size();
