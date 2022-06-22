@@ -199,7 +199,7 @@ list(APPEND MHM2_TARGET_OBJECTS $<TARGET_OBJECTS:hash_funcs>)
 # build all the extern template souce code instantiation explosion
 
 foreach(KMER_LENGTH ${MHM2_KMER_LENGTHS})
-  foreach(TEMPLATE "contigging" "scaffolding" "post_assembly" "kmer")
+  foreach(TEMPLATE "contigging" "scaffolding" "kmer")
     set(TEMPLATE_FILE "${TEMPLATE}-extern-template-${KMER_LENGTH}")
     string(TOUPPER ${TEMPLATE} TEMPLATE_UPPER)
     configure_file("extern_template.in.cpp" "${TEMPLATE_FILE}.cpp" @ONLY)
@@ -221,6 +221,7 @@ foreach(
   aln_depths
   shuffle_reads
   gasnet_stats
+  post_assembly
   ${EXTERN_TEMPLATE_FILES})
   add_library(${tgt} OBJECT ${tgt}.cpp)
   if(${CMAKE_VERSION} VERSION_GREATER_EQUAL 3.13 AND DEFINED UPCXX_LIBRARIES)
