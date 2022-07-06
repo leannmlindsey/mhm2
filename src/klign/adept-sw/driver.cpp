@@ -89,6 +89,27 @@ struct gpu_alignments {
   }
 };
 
+struct gpu_alignments_traceback {
+  char* longCIGAR_gpu;
+  char* CIGAR_gpu;
+  char* H_ptr_gpu;
+
+  gpu_alignments_traceback(int max_alignments, int maxCIGAR, unsigned const maxMatrixSize) {
+    //printf("new operator called, creating gpu_alignments_traceback data structure\n");
+    cudaErrchk(cudaMalloc(&CIGAR_gpu, (max_alignments) * sizeof(char) * maxCIGAR));
+    cudaErrchk(cudaMalloc(&H_ptr_gpu, 1.25 * sizeof(char) * maxMatrixSize * (max_alignments))); // added a buffer because of cuda-error in larger sequences
+    cudaErrchk(cudaMalloc(&longCIGAR_gpu, sizeof(char) * maxCIGAR * (max_alignments)));
+  }
+
+  ~gpu_alignments_traceback() {
+    //printf("delete operator called, deleting gpu_alignments_traceback data structure\n");
+    cudaErrchk(cudaFree(CIGAR_gpu));
+    cudaErrchk(cudaFree(H_ptr_gpu));
+    cudaErrchk(cudaFree(longCIGAR_gpu));
+  }
+};
+
+
 void asynch_mem_copies_htd(gpu_alignments* gpu_data, unsigned* offsetA_h, unsigned* offsetB_h, char* strA, char* strA_d, char* strB,
                            char* strB_d, unsigned half_length_A, unsigned half_length_B, unsigned totalLengthA,
                            unsigned totalLengthB, int sequences_per_stream, int sequences_stream_leftover,
@@ -161,6 +182,86 @@ void asynch_mem_copies_dth(gpu_alignments* gpu_data, short* alAbeg, short* alBbe
                              streams_cuda[1]));
 }
 
+void asynch_mem_copies_htd_t(gpu_alignments* gpu_data, gpu_alignments_traceback* gpu_data_traceback, unsigned* offsetA_h, unsigned* offsetB_h, char* strA, char* strA_d, char* strB,
+                           char* strB_d, unsigned half_length_A, unsigned half_length_B, unsigned totalLengthA,
+                           unsigned totalLengthB, int sequences_per_stream, int sequences_stream_leftover,
+                           cudaStream_t* streams_cuda, int max_rlen) {
+
+  cudaErrchk(cudaMemcpyAsync(gpu_data->offset_ref_gpu, offsetA_h, (sequences_per_stream) * sizeof(int), cudaMemcpyHostToDevice,
+                             streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(gpu_data->offset_ref_gpu + sequences_per_stream, offsetA_h + sequences_per_stream,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(int), cudaMemcpyHostToDevice,
+                             streams_cuda[1]));
+
+  cudaErrchk(cudaMemcpyAsync(gpu_data->offset_query_gpu, offsetB_h, (sequences_per_stream) * sizeof(int), cudaMemcpyHostToDevice,
+                             streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(gpu_data->offset_query_gpu + sequences_per_stream, offsetB_h + sequences_per_stream,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(int), cudaMemcpyHostToDevice,
+                             streams_cuda[1]));
+
+  cudaErrchk(cudaMemcpyAsync(strA_d, strA, half_length_A * sizeof(char), cudaMemcpyHostToDevice, streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(strA_d + half_length_A, strA + half_length_A, (totalLengthA - half_length_A) * sizeof(char),
+                             cudaMemcpyHostToDevice, streams_cuda[1]));
+
+  size_t size_strB = sizeof(char) * max_rlen * KLIGN_GPU_BLOCK_SIZE;
+  if (size_strB < totalLengthB) {
+    std::cerr << "<" << __FILE__ << ":" << __LINE__ << "> ERROR: size_strB " << size_strB << " < "
+              << "totalLengthB " << totalLengthB << " max rlen " << max_rlen << "\n";
+    std::abort();
+  }
+  if (size_strB < half_length_B) {
+    std::cerr << "<" << __FILE__ << ":" << __LINE__ << "> ERROR: size_strB " << size_strB << " < "
+              << "half_length_B " << half_length_B << " max rlen " << max_rlen << "\n";
+    std::abort();
+  }
+  cudaErrchk(cudaMemcpyAsync(strB_d, strB, half_length_B * sizeof(char), cudaMemcpyHostToDevice, streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(strB_d + half_length_B, strB + half_length_B, (totalLengthB - half_length_B) * sizeof(char),
+                             cudaMemcpyHostToDevice, streams_cuda[1]));
+}
+
+void asynch_mem_copies_dth_t(gpu_alignments* gpu_data, gpu_alignments_traceback* gpu_data_traceback, short* alAbeg, short* alBbeg,
+                              short* alAend, short* alBend,
+                              short* top_scores_cpu, char* cigar_cpu, int maxCIGAR, int sequences_per_stream,
+                              int sequences_stream_leftover, cudaStream_t* streams_cuda) {
+
+  cudaErrchk(cudaMemcpyAsync(alAbeg, gpu_data->ref_start_gpu, sequences_per_stream * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(alAbeg + sequences_per_stream, gpu_data->ref_start_gpu + sequences_per_stream,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[1]));
+
+  cudaErrchk(cudaMemcpyAsync(alBbeg, gpu_data->query_start_gpu, sequences_per_stream * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(alBbeg + sequences_per_stream, gpu_data->query_start_gpu + sequences_per_stream,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[1]));
+
+  cudaErrchk(cudaMemcpyAsync(alAend, gpu_data->ref_end_gpu, sequences_per_stream * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(alAend + sequences_per_stream, gpu_data->ref_end_gpu + sequences_per_stream,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[1]));
+
+  cudaErrchk(cudaMemcpyAsync(alBend, gpu_data->query_end_gpu, sequences_per_stream * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(alBend + sequences_per_stream, gpu_data->query_end_gpu + sequences_per_stream,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[1]));
+
+  cudaErrchk(cudaMemcpyAsync(top_scores_cpu, gpu_data->scores_gpu, sequences_per_stream * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[0]));
+  cudaErrchk(cudaMemcpyAsync(top_scores_cpu + sequences_per_stream, gpu_data->scores_gpu + sequences_per_stream,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(short), cudaMemcpyDeviceToHost,
+                             streams_cuda[1]));
+
+  cudaErrchk(cudaMemcpyAsync(cigar_cpu, gpu_data_traceback->CIGAR_gpu, sequences_per_stream * sizeof(char) * maxCIGAR, cudaMemcpyDeviceToHost,
+                             streams_cuda[0]));
+
+  cudaErrchk(cudaMemcpyAsync(cigar_cpu + sequences_per_stream * maxCIGAR, gpu_data_traceback->CIGAR_gpu + sequences_per_stream * maxCIGAR,
+                             (sequences_per_stream + sequences_stream_leftover) * sizeof(char) * maxCIGAR, cudaMemcpyDeviceToHost,
+                             streams_cuda[1]));
+}
+
 int get_new_min_length(short* alAend, short* alBend, int blocksLaunched) {
   int newMin = 1000;
   int maxA = 0;
@@ -184,13 +285,14 @@ struct adept_sw::DriverState {
   cudaEvent_t event;
   short matchScore, misMatchScore, startGap, extendGap;
   gpu_alignments* gpu_data;
+  gpu_alignments_traceback* gpu_data_traceback;
   unsigned half_length_A = 0;
   unsigned half_length_B = 0;
   int max_rlen = 0;
 };
 
 adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_score, short mismatch_score,
-                               short gap_opening_score, short gap_extending_score, int max_rlen, double& init_time) {
+                               short gap_opening_score, short gap_extending_score, int max_rlen, bool compute_cigar, double& init_time) {
   using timepoint_t = std::chrono::time_point<std::chrono::high_resolution_clock>;
   timepoint_t t = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed;
@@ -210,6 +312,7 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
   cudaErrchk(cudaMallocHost(&(alignments.query_begin), sizeof(short) * KLIGN_GPU_BLOCK_SIZE));
   cudaErrchk(cudaMallocHost(&(alignments.query_end), sizeof(short) * KLIGN_GPU_BLOCK_SIZE));
   cudaErrchk(cudaMallocHost(&(alignments.top_scores), sizeof(short) * KLIGN_GPU_BLOCK_SIZE));
+  cudaErrchk(cudaMallocHost(&(alignments.cigar), sizeof(char) * 3 * max_rlen * KLIGN_GPU_BLOCK_SIZE)); //FIXME LL: estimate here for maxCIGAR
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " mallocHost=" << elapsed.count();
 
   gpu_utils::set_gpu_device(driver_state->rank_me);
@@ -235,6 +338,13 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
 
   driver_state->gpu_data = new gpu_alignments(KLIGN_GPU_BLOCK_SIZE);  // gpu mallocs
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " final=" << elapsed.count();
+  
+  int maxCIGAR = 3*max_rlen; //FIXME LL: Hack until I can pass in max_clen
+  int maxMatrixSize = max_rlen * 3 * max_rlen; //FIXME LL: Hack until I can pass in max_clen
+  
+  if(compute_cigar) {
+    driver_state->gpu_data_traceback = new gpu_alignments_traceback(KLIGN_GPU_BLOCK_SIZE, maxCIGAR, maxMatrixSize);  // gpu mallocs
+  } 
 
   elapsed = std::chrono::high_resolution_clock::now() - t;
   init_time = elapsed.count();
@@ -249,6 +359,7 @@ adept_sw::GPUDriver::~GPUDriver() {
   cudaErrchk(cudaFreeHost(alignments.query_begin));
   cudaErrchk(cudaFreeHost(alignments.query_end));
   cudaErrchk(cudaFreeHost(alignments.top_scores));
+  cudaErrchk(cudaFreeHost(alignments.cigar));
 
   cudaErrchk(cudaFree(driver_state->strA_d));
   cudaErrchk(cudaFree(driver_state->strB_d));
@@ -258,6 +369,7 @@ adept_sw::GPUDriver::~GPUDriver() {
   cudaErrchk(cudaFreeHost(driver_state->strB));
   for (int i = 0; i < NSTREAMS; i++) cudaErrchk(cudaStreamDestroy(driver_state->streams_cuda[i]));
   delete driver_state->gpu_data;
+  delete driver_state->gpu_data_traceback;
   delete driver_state;
 }
 
@@ -408,4 +520,157 @@ void adept_sw::GPUDriver::run_kernel_backwards(std::vector<std::string>& reads, 
   asynch_mem_copies_dth(driver_state->gpu_data, alAbeg, alBbeg, top_scores_cpu, sequences_per_stream, sequences_stream_leftover,
                         driver_state->streams_cuda);
   cudaErrchk(cudaEventRecord(driver_state->event));
+}
+
+void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, std::vector<std::string>& contigs,
+                                              unsigned maxReadSize, unsigned maxContigSize) {
+  gpu_utils::set_gpu_device(driver_state->rank_me);
+
+  unsigned totalAlignments = contigs.size();  // assuming that read and contig vectors are same length
+  printf("Starting Batch Size = %d\n", totalAlignments);
+  unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize;
+  unsigned const maxMatrixSize = (maxContigSize + 1 ) * (maxReadSize + 1);
+  // memory on CPU for copying the results
+  short* alAbeg = alignments.ref_begin;
+  short* alBbeg = alignments.query_begin;
+  short* alAend = alignments.ref_end;
+  short* alBend = alignments.query_end;
+  short* top_scores_cpu = alignments.top_scores;
+  char*  cigar_cpu = alignments.cigar;
+
+  int blocksLaunched = totalAlignments;
+  std::vector<std::string>::const_iterator beginAVec;
+  std::vector<std::string>::const_iterator endAVec;
+  std::vector<std::string>::const_iterator beginBVec;
+  std::vector<std::string>::const_iterator endBVec;
+  beginAVec = contigs.begin();
+  endAVec = contigs.begin() + totalAlignments;
+  beginBVec = reads.begin();
+  endBVec = reads.begin() + totalAlignments;
+
+  std::vector<std::string> sequencesA(beginAVec, endAVec);
+  std::vector<std::string> sequencesB(beginBVec, endBVec);
+  unsigned running_sum = 0;
+  int sequences_per_stream = (blocksLaunched) / NSTREAMS;
+  int sequences_stream_leftover = (blocksLaunched) % NSTREAMS;
+  driver_state->half_length_A = 0;
+  driver_state->half_length_B = 0;
+
+  for (int i = 0; i < (int)sequencesA.size(); i++) {
+    running_sum += sequencesA[i].size();
+    driver_state->offsetA_h[i] = running_sum;  // sequencesA[i].size();
+    if (i == sequences_per_stream - 1) {
+      driver_state->half_length_A = running_sum;
+      running_sum = 0;
+    }
+  }
+  unsigned totalLengthA = driver_state->half_length_A + driver_state->offsetA_h[sequencesA.size() - 1];
+
+  running_sum = 0;
+  for (int i = 0; i < (int)sequencesB.size(); i++) {
+    running_sum += sequencesB[i].size();
+    driver_state->offsetB_h[i] = running_sum;  // sequencesB[i].size();
+    if (i == sequences_per_stream - 1) {
+      driver_state->half_length_B = running_sum;
+      running_sum = 0;
+    }
+  }
+  unsigned totalLengthB = driver_state->half_length_B + driver_state->offsetB_h[sequencesB.size() - 1];
+
+  unsigned offsetSumA = 0;
+  unsigned offsetSumB = 0;
+
+  for (int i = 0; i < (int)sequencesA.size(); i++) {
+    char* seqptrA = driver_state->strA + offsetSumA;
+    memcpy(seqptrA, sequencesA[i].c_str(), sequencesA[i].size());
+    char* seqptrB = driver_state->strB + offsetSumB;
+    memcpy(seqptrB, sequencesB[i].c_str(), sequencesB[i].size());
+    offsetSumA += sequencesA[i].size();
+    offsetSumB += sequencesB[i].size();
+  }
+
+  cudaErrchk(cudaEventCreateWithFlags(&driver_state->event, cudaEventDisableTiming | cudaEventBlockingSync));
+
+  asynch_mem_copies_htd_t(driver_state->gpu_data, driver_state->gpu_data_traceback, driver_state->offsetA_h, driver_state->offsetB_h, driver_state->strA,
+                        driver_state->strA_d, driver_state->strB, driver_state->strB_d, driver_state->half_length_A,
+                        driver_state->half_length_B, totalLengthA, totalLengthB, sequences_per_stream, sequences_stream_leftover,
+                        driver_state->streams_cuda, driver_state->max_rlen);
+  unsigned minSize = (maxReadSize < maxContigSize) ? maxReadSize : maxContigSize;
+  unsigned totShmem = 3 * (minSize + 1) * sizeof(short);
+  unsigned alignmentPad = 4 + (4 - totShmem % 4);
+  size_t   ShmemBytes = totShmem + alignmentPad + sizeof(int) * (maxContigSize + maxReadSize + 2 );
+  //printf("ShmemBytes = %d, Total Avail = %d, Remaining = %d \n", ShmemBytes, 48*1024, 48*1024-ShmemBytes);
+  if (ShmemBytes > 48000)
+    cudaErrchk(cudaFuncSetAttribute(gpu_bsw::sequence_dna_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, ShmemBytes));
+
+  printf("LLCOMMENT: Calling sequence dna_kernel_traceback stream 0\n");
+  gpu_bsw::sequence_dna_kernel_traceback<<<sequences_per_stream, minSize, ShmemBytes, driver_state->streams_cuda[0]>>>(
+      driver_state->strA_d, driver_state->strB_d,
+      driver_state->gpu_data->offset_ref_gpu,
+      driver_state->gpu_data->offset_query_gpu,
+      driver_state->gpu_data->ref_start_gpu,
+      driver_state->gpu_data->ref_end_gpu,
+      driver_state->gpu_data->query_start_gpu,
+      driver_state->gpu_data->query_end_gpu,
+      driver_state->gpu_data->scores_gpu,
+      driver_state->gpu_data_traceback->longCIGAR_gpu,
+      driver_state->gpu_data_traceback->CIGAR_gpu,
+      driver_state->gpu_data_traceback->H_ptr_gpu,
+      maxCIGAR, maxMatrixSize,
+      driver_state->matchScore, driver_state->misMatchScore, driver_state->startGap, driver_state->extendGap);
+
+  printf("LLCOMMENT: Calling sequence dna_kernel_traceback stream 1\n");
+  gpu_bsw::
+      sequence_dna_kernel_traceback<<<sequences_per_stream + sequences_stream_leftover, minSize, ShmemBytes, driver_state->streams_cuda[1]>>>(
+          driver_state->strA_d + driver_state->half_length_A, driver_state->strB_d + driver_state->half_length_B,
+          driver_state->gpu_data->offset_ref_gpu + sequences_per_stream,
+          driver_state->gpu_data->offset_query_gpu + sequences_per_stream,
+          driver_state->gpu_data->ref_start_gpu + sequences_per_stream,
+          driver_state->gpu_data->ref_end_gpu + sequences_per_stream,
+          driver_state->gpu_data->query_start_gpu + sequences_per_stream,
+          driver_state->gpu_data->query_end_gpu + sequences_per_stream,
+          driver_state->gpu_data->scores_gpu + sequences_per_stream,
+          driver_state->gpu_data_traceback->longCIGAR_gpu + sequences_per_stream * maxCIGAR,
+          driver_state->gpu_data_traceback->CIGAR_gpu + sequences_per_stream * maxCIGAR,
+          driver_state->gpu_data_traceback->H_ptr_gpu + sequences_per_stream * maxMatrixSize,
+          maxCIGAR, maxMatrixSize,
+          driver_state->matchScore, driver_state->misMatchScore, driver_state->startGap, driver_state->extendGap);
+
+  asynch_mem_copies_dth_t(driver_state->gpu_data, driver_state->gpu_data_traceback, alAbeg, alBbeg, alAend, alBend, top_scores_cpu, cigar_cpu, maxCIGAR,
+                          sequences_per_stream, sequences_stream_leftover, driver_state->streams_cuda);
+  // printf("LLCOMMENT: Streams finished\n");
+  // for(int y=0; y<20; y++){
+  //   printf("y = %d, %c%c%c%c%c%c%c%c%c%c\n",y,alignments.cigar[y*maxCIGAR],
+  //     alignments.cigar[y*maxCIGAR+1],
+  //     alignments.cigar[y*maxCIGAR+2],
+  //     alignments.cigar[y*maxCIGAR+3],
+  //     alignments.cigar[y*maxCIGAR+4],
+  //     alignments.cigar[y*maxCIGAR+5],
+  //     alignments.cigar[y*maxCIGAR+6],
+  //     alignments.cigar[y*maxCIGAR+7],
+  //     alignments.cigar[y*maxCIGAR+8],
+  //     alignments.cigar[y*maxCIGAR+9]);
+  // }
+  // int count = 0;
+  // for (int q= 0; q < totalAlignments; q++){
+  //   if (alignments.cigar[q*maxCIGAR] == NULL) {count = count + 1;}
+  // }
+  //printf("Total Alignments = %d, empty CIGARS = %d\n",totalAlignments, count);
+
+
+  cudaDeviceSynchronize();
+  cudaErrchk(cudaEventRecord(driver_state->event));
+  // int count = 0;
+  // for (int q= 1; q < totalAlignments; q++){
+  //    if (alignments.cigar[q*maxCIGAR-1] != NULL) {count = count + 1;}
+  // }
+  // printf("Total Alignments = %d, completely full CIGARS = %d\n",totalAlignments, count);
+
+  // int count = 0;
+  // for (int q= 0; q < totalAlignments; q++){
+  //   if (alignments.cigar[q*maxCIGAR] == NULL) {count = count + 1;}
+  //   //printf("alignments.cigar = %c\n",alignments.cigar[q*maxCIGAR]);
+  // }
+  // printf("Total Alignments = %d, empty CIGARS = %d, maxCIGAR = %d\n",totalAlignments, count, maxCIGAR);
+
 }

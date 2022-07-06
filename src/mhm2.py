@@ -488,7 +488,7 @@ def main():
         halfnoderanks += ',' + str(n*cores) + ',' + str(n*cores+cores/2)
 
     # set extra GASNET environments from build and/or options to mhm2.py
-    runtime_vars = """@MHM2PY_RUNTIME_ENV@"""
+    runtime_vars = """"""
     if runtime_vars == '@MHM2PY_RUNTIME' + '_ENV@':
         runtime_vars = ''
     runtime_output_vars = ''

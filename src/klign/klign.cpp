@@ -76,7 +76,7 @@ extern IntermittentTimer compute_alns_timer;
 extern IntermittentTimer get_ctgs_timer;
 extern IntermittentTimer aln_kernel_timer;
 
-void init_aligner(AlnScoring &aln_scoring, int rlen_limit);
+void init_aligner(AlnScoring &aln_scoring, int rlen_limit, bool compute_cigar);
 void cleanup_aligner();
 void kernel_align_block(CPUAligner &cpu_aligner, vector<Aln> &kernel_alns, vector<string> &ctg_seqs, vector<string> &read_seqs,
                         Alns *alns, future<> &active_kernel_fut, int read_group_id, int max_clen, int max_rlen,
@@ -379,7 +379,7 @@ class Aligner {
       , alns(&alns) {
     ctg_cache.set_invalid_key(std::numeric_limits<cid_t>::max());
     ctg_cache.reserve(3 * all_num_ctgs / rank_n() + 1024);
-    init_aligner(cpu_aligner.aln_scoring, rlen_limit);
+    init_aligner(cpu_aligner.aln_scoring, rlen_limit, compute_cigar);
   }
 
   ~Aligner() {
