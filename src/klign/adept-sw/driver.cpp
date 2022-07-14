@@ -527,7 +527,6 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
   gpu_utils::set_gpu_device(driver_state->rank_me);
 
   unsigned totalAlignments = contigs.size();  // assuming that read and contig vectors are same length
-  printf("Starting Batch Size = %d\n", totalAlignments);
   unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize;
   unsigned const maxMatrixSize = (maxContigSize + 1 ) * (maxReadSize + 1);
   // memory on CPU for copying the results
@@ -603,7 +602,6 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
   if (ShmemBytes > 48000)
     cudaErrchk(cudaFuncSetAttribute(gpu_bsw::sequence_dna_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, ShmemBytes));
 
-  printf("LLCOMMENT: Calling sequence dna_kernel_traceback stream 0\n");
   gpu_bsw::sequence_dna_kernel_traceback<<<sequences_per_stream, minSize, ShmemBytes, driver_state->streams_cuda[0]>>>(
       driver_state->strA_d, driver_state->strB_d,
       driver_state->gpu_data->offset_ref_gpu,
@@ -619,7 +617,6 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
       maxCIGAR, maxMatrixSize,
       driver_state->matchScore, driver_state->misMatchScore, driver_state->startGap, driver_state->extendGap);
 
-  printf("LLCOMMENT: Calling sequence dna_kernel_traceback stream 1\n");
   gpu_bsw::
       sequence_dna_kernel_traceback<<<sequences_per_stream + sequences_stream_leftover, minSize, ShmemBytes, driver_state->streams_cuda[1]>>>(
           driver_state->strA_d + driver_state->half_length_A, driver_state->strB_d + driver_state->half_length_B,
@@ -638,25 +635,6 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
 
   asynch_mem_copies_dth_t(driver_state->gpu_data, driver_state->gpu_data_traceback, alAbeg, alBbeg, alAend, alBend, top_scores_cpu, cigar_cpu, maxCIGAR,
                           sequences_per_stream, sequences_stream_leftover, driver_state->streams_cuda);
-  // printf("LLCOMMENT: Streams finished\n");
-  // for(int y=0; y<20; y++){
-  //   printf("y = %d, %c%c%c%c%c%c%c%c%c%c\n",y,alignments.cigar[y*maxCIGAR],
-  //     alignments.cigar[y*maxCIGAR+1],
-  //     alignments.cigar[y*maxCIGAR+2],
-  //     alignments.cigar[y*maxCIGAR+3],
-  //     alignments.cigar[y*maxCIGAR+4],
-  //     alignments.cigar[y*maxCIGAR+5],
-  //     alignments.cigar[y*maxCIGAR+6],
-  //     alignments.cigar[y*maxCIGAR+7],
-  //     alignments.cigar[y*maxCIGAR+8],
-  //     alignments.cigar[y*maxCIGAR+9]);
-  // }
-  // int count = 0;
-  // for (int q= 0; q < totalAlignments; q++){
-  //   if (alignments.cigar[q*maxCIGAR] == NULL) {count = count + 1;}
-  // }
-  //printf("Total Alignments = %d, empty CIGARS = %d\n",totalAlignments, count);
-
 
   cudaDeviceSynchronize();
   cudaErrchk(cudaEventRecord(driver_state->event));

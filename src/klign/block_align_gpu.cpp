@@ -65,9 +65,9 @@ static upcxx::future<> gpu_align_block(shared_ptr<AlignBlockData> aln_block_data
     unsigned maxContigSize = aln_block_data->max_clen ;
     unsigned maxReadSize = aln_block_data->max_rlen ;
     unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize;
-    printf("LLCOMMENT: report_cigar is %s\n", (report_cigar)? "true": "false");
+   
     if (report_cigar){
-      printf("LLCOMMENT: report_cigar is true, running run_kernel_traceback\n");
+      
       aln_kernel_timer.start();
 
       gpu_driver->run_kernel_traceback(aln_block_data->read_seqs, aln_block_data->ctg_seqs, aln_block_data->max_rlen,
@@ -75,7 +75,7 @@ static upcxx::future<> gpu_align_block(shared_ptr<AlignBlockData> aln_block_data
       gpu_driver->kernel_block();
       aln_kernel_timer.stop();
     } else {
-        printf("LLCOMMENT: report_cigar is FALSE, running run_kernel without traceback \n");
+        
     	aln_kernel_timer.start();
 
     	// align query_seqs, ref_seqs, max_query_size, max_ref_size

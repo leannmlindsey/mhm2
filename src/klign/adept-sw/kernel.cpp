@@ -1007,12 +1007,12 @@ gpu_bsw::createCIGAR(char* longCIGAR, char* CIGAR, int maxCIGAR,
         longerSeq = seqA;
         shorterSeq = seqB;
         beg_S = lengthShorterSeq - first_j -1 ;
-        end_S = last_j -1; 
+        end_S = last_j; 
     } else {
         longerSeq = seqB;
         shorterSeq = seqA;
         beg_S = lengthLongerSeq - first_i -1 ; 
-        end_S = last_i -1;
+        end_S = last_i;
     }
     
     if ( beg_S != 0){
@@ -1071,10 +1071,9 @@ gpu_bsw::traceBack(short current_i, short current_j, char* seqA_array, char* seq
                     short* seqB_align_begin, short* seqB_align_end, unsigned const maxMatrixSize, int maxCIGAR,
                     char* longCIGAR, char* CIGAR, char* H_ptr, unsigned short* diagOffset)
 {     
-    
     int myId = blockIdx.x;
     int myTId = threadIdx.x;
-    
+
     char*    seqA;
     char*    seqB;
 
@@ -1087,7 +1086,7 @@ gpu_bsw::traceBack(short current_i, short current_j, char* seqA_array, char* seq
         lengthSeqB = prefix_lengthB[0];
         seqA       = seqA_array;
         seqB       = seqB_array;
-    
+
     }
     else
     {
@@ -1100,15 +1099,12 @@ gpu_bsw::traceBack(short current_i, short current_j, char* seqA_array, char* seq
 
     unsigned short current_diagId;     // = current_i+current_j;
     unsigned short current_locOffset;  // = 0;
-    unsigned short last_diagId;
-    unsigned short last_locOffset;
     unsigned maxSize = lengthSeqA > lengthSeqB ? lengthSeqA : lengthSeqB;
-    bool gapOpen = 0;
 
-    const char* longerSeq = lengthSeqA < lengthSeqB ? seqB : seqA; 
-    const char* shorterSeq = lengthSeqA < lengthSeqB ? seqA : seqB; 
-    unsigned lengthShorterSeq = lengthSeqA < lengthSeqB ? lengthSeqA : lengthSeqB;  
-    unsigned lengthLongerSeq = lengthSeqA < lengthSeqB ? lengthSeqB : lengthSeqA;    
+    const char* longerSeq = lengthSeqA < lengthSeqB ? seqB : seqA;
+    const char* shorterSeq = lengthSeqA < lengthSeqB ? seqA : seqB;
+    unsigned lengthShorterSeq = lengthSeqA < lengthSeqB ? lengthSeqA : lengthSeqB;
+    unsigned lengthLongerSeq = lengthSeqA < lengthSeqB ? lengthSeqB : lengthSeqA;
     bool seqBShorter = lengthSeqA < lengthSeqB ? false : true;  //need to keep track of whether query or ref is shorter for CIGAR 
 
     current_diagId    = current_i + current_j;
@@ -1122,143 +1118,96 @@ gpu_bsw::traceBack(short current_i, short current_j, char* seqA_array, char* seq
         unsigned short myOff = current_diagId - maxSize;
         current_locOffset    = current_j - myOff;
     }
-
-    //if(myId == 0 && myTId ==0){
-        //printf("Beginning Traceback on Block #%d\n", myId);
-        //printf("diagID:%d locoffset:%d current_i:%d, current_j:%d, Block #%d\n\n",current_diagId, current_locOffset, current_i, current_j, myId);
-        //printf("BLOCK #%d, first H_ptr[] = %c, H_ptr[0] = %c\n", myId, H_ptr[diagOffset[current_diagId] + current_locOffset], H_ptr[0]);                
-        
-    //}
     char temp_H;
     temp_H = H_ptr[diagOffset[current_diagId] + current_locOffset];
     short next_i;
     short next_j;
-    short last_i = 0;
-    short last_j = 0;
-    //printf("BLOCK #%d, H_ptr[] = %c\n", myId, H_ptr[diagOffset[current_diagId] + current_locOffset]);  
-    switch (temp_H & 0b00001100){
-        case 0b00001100 :
-            //printf("binary is 0b00001100, decimal is %d\n",H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
-            next_i = current_i - 1;
-            next_j = current_j - 1;
-            break;
-        case 0b00001000 :
-            //printf("binary is 0b00001000, decimal is %d\n",H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
-            next_i = current_i - 1;
-            next_j = current_j;
-            break;
-        case 0b00000100:
-            //printf("binary is 0b00000100, decimal is %d\n",H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
-            next_i = current_i;
-            next_j = current_j - 1;
-            break;
-        default:
-            //printf("default, the char is not \ | or - ********* char is : %c\n", H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
-        
 
-    }
 
     short first_j = current_j; //recording the first_j, first_i values for use in calculating S
     short first_i = current_i;
-    short current_score = 0;
-    short last_score = 0;
     char matrix = 'H'; //initialize with H
 
     int counter = 0;
-   
-    while(((current_i != next_i) || (current_j != next_j)) && (next_j != 0) && (next_i != 0))
-    {   
-        temp_H = H_ptr[diagOffset[current_diagId] + current_locOffset];
-       //printf("in WHILE loop, cur_i=%d, cur_j=%d\n",current_i, current_j);
-       //if(myId==0 && myTId ==0) {
-            //for (int i = 0; i <= counter; i++){
-              //  printf("%c",longCIGAR[i]);
-            //}
-            //printf("\n\n");
-        //}  
-        //if(myId==0 && myTId ==0) {
-          //  printf("current_i:%d, current_j:%d, next_i:%d, next_j:%d, %c , %c\n",current_i, current_j, next_i, next_j, shorterSeq[current_j], longerSeq[current_i]);
-        //} 
-        if (next_i == current_i){
-            //printf("BLOCK #%d, E_ptr[] = %c\n", myId, E_ptr[diagOffset[current_diagId] + current_locOffset]); 
-            //printf("JUST ENTERED E, E_ptr = %d\n", E_ptr[diagOffset[current_diagId] + current_locOffset]);
-            //printf("BLOCK #%d, E_ptr[] = %c, current_diagId = %d, current_locOffset = %d, current_i = %d, current_j = %d, maxSize = %d\n", myId, E_ptr[diagOffset[current_diagId] + current_locOffset],current_diagId, current_locOffset, current_i, current_j, maxSize); 
-            if (temp_H & 0b00000010 == 0b00000000) {
-                gapOpen = 1;
+    bool continueTrace = true;
+
+    while(continueTrace && (current_i != 0) && (current_j != 0))
+    {
+       temp_H = H_ptr[diagOffset[current_diagId] + current_locOffset];
+
+
+        // if(myId==0 && myTId ==0) {
+        //     printf("current_i:%d, current_j:%d, %c , %c, %d\n",current_i, current_j, shorterSeq[current_j], longerSeq[current_i],counter);
+        // } 
+
+        //write the current value into longCIGAR then assign next_i
+        if (matrix == 'H') {
+            longCIGAR[counter] = shorterSeq[current_j] == longerSeq[current_i] ? '=' : 'X';
+            switch (temp_H & 0b00001100){
+                case 0b00001100 :
+                    matrix = 'H';
+                    next_i = current_i - 1;
+                    next_j = current_j - 1;
+                    break;
+                case 0b00001000 :
+                    matrix = 'F';
+                    next_i = current_i - 1;
+                    next_j = current_j;
+                    break;
+                case 0b00000100 :
+                    matrix = 'E';
+                    next_i = current_i;
+                    next_j = current_j - 1;
+                    break;
+                 case 0b00000000 :
+                    continueTrace = false;
+                    break;
             }
-            if (gapOpen == 0) {
-                matrix = 'E';
-            }
-            //if(myId==0 && myTId ==0){
-                //printf("in E - gapOpen = %d, current matrix = %c, E_ptr = %d\n", gapOpen, matrix, E_ptr[diagOffset[current_diagId] + current_locOffset]);
-            //}
-            // no match, no vertical movement, query has Insertion if que shorter and Deletion if ref is shorter       
+        } else if (matrix == 'E'){
             longCIGAR[counter] = seqBShorter ? 'I' : 'D';
-            if (counter != 0){
-                if( longCIGAR[counter-1] == 'X' && last_i == current_i){
-                    longCIGAR[counter-1] = seqBShorter ? 'I' : 'D'; //an aligned mismatch before an insertion or deletion is a part of the insertion or deletion
-                }
-                //if(myId ==0 && myTId ==0) {
-                    //printf(" mismatch before Indel, change X to I or D \n");
-                //}
-            }     
-
-
-            if (shorterSeq[current_j] == longerSeq[current_i] && gapOpen == 1 && next_i == current_i) {
-                longCIGAR[counter] = '='; //if match at the end of an indel, = in CIGAR
+            if (longCIGAR[counter-1] == 'X' ) {
+                if (longCIGAR[counter] == 'I') {longCIGAR[counter-1] = 'I';}
+                else if (longCIGAR[counter] == 'D') {longCIGAR[counter-1] = 'D';}
             }
-        } else if (next_j == current_j) {
-            //printf("BLOCK #%d, F_ptr[] = %c\n", myId, F_ptr[diagOffset[current_diagId] + current_locOffset]); 
-            if (temp_H & 0b00000001 == 0b00000000) {
-                gapOpen = 1;
+
+            switch (temp_H & 0b00000010){
+                case 0b00000010 :
+                    next_i = current_i;
+                    next_j = current_j - 1;
+                    break;
+                case 0b00000000 :
+                    matrix = 'H';
+                    next_i = current_i;
+                    next_j = current_j-1;
+                    break;
             }
-            if (gapOpen == 0) 
-                matrix = 'F';
-            // no match, no horizontal movement, query has Deletion if que shorter and Deletion if ref is shorter
-          
-            //if(myId==0 && myTId ==0){
-                //printf("in F - gapOpen = %d, current matrix = %c, F_ptr = %d\n", gapOpen, matrix,F_ptr[diagOffset[current_diagId] + current_locOffset]);
-                
-            //}
+          } else if (matrix == 'F'){
             longCIGAR[counter] = seqBShorter ? 'D' : 'I';
-            if( counter != 0) {
-                if( longCIGAR[counter-1] == 'X' && last_j == current_j){
-                    longCIGAR[counter-1] = seqBShorter ? 'D' : 'I'; //an aligned mismatch before an insertion or deletion is a part of the insertion or deletion
-            
-                //if(myId ==0 && myTId ==0) {
-                    //printf(" mismatch before Indel, change X to I or D \n");
-                //}
-                } 
+            if (longCIGAR[counter-1] == 'X' ) {
+                if (longCIGAR[counter] == 'I') {longCIGAR[counter-1] = 'I';}
+                else if (longCIGAR[counter] == 'D') {longCIGAR[counter-1] = 'D';}
             }
-            if (shorterSeq[current_j] == longerSeq[current_i] && gapOpen == 1 && next_j == current_j -1) {
-                longCIGAR[counter] = '=';
-            }
-
-        } else if ((next_i == current_i - 1) && (next_j == current_j - 1)  ){
-                matrix = 'H';
-                gapOpen = 0;
-                //if(myId==0 && myTId ==0){
-                    //printf("in H - gapOpen = %d, current matrix = %c\n", gapOpen, matrix);
-                //}
-            
-            if (shorterSeq[current_j] == longerSeq[current_i]) {
-                longCIGAR[counter] = '=';
-                //if (myId ==0 && myTId ==0)
-                    //printf(" perfect match = \n");
-            } else { 
-                longCIGAR[counter] = 'X';
-                //if (myId ==0 && myTId ==0)
-                    //printf(" aligned - but could be mismatch, or start if Insert or start of Delete \n"); 
+            switch (temp_H & 0b00000001){
+                case 0b00000001 :
+                    next_i = current_i - 1;
+                    next_j = current_j;
+                    break;
+                case 0b00000000 :
+                    matrix = 'H';
+                    next_i = current_i-1;
+                    next_j = current_j;
+                    break;
             }
         }
-        last_i = current_i;
-        last_j = current_j;
+        // if(myId==0 && myTId ==0) {
+        //     for (int i = 0; i <= counter; i++){
+        //         printf("%c",longCIGAR[i]);
+        //     }
+        //     printf("\n");
+        // }  
 
         current_i = next_i;
         current_j = next_j;
-
-        last_diagId = current_diagId;
-        last_locOffset = current_locOffset;
 
         current_diagId    = current_i + current_j;
         current_locOffset = 0;
@@ -1270,89 +1219,307 @@ gpu_bsw::traceBack(short current_i, short current_j, char* seqA_array, char* seq
             unsigned short myOff2 = current_diagId - maxSize;
             current_locOffset     = current_j - myOff2;
         }
+        counter++;
+        if(counter>maxCIGAR) printf("CIGAR is longer than max value\n");
 
-        if (matrix == 'E'){
-            //printf("the matrix is E & ");
-            //printf("the next pointer is: %c\n",E_ptr[diagOffset[current_diagId] + current_locOffset]);
-            //printf("BLOCK #%d, E_ptr[] = %c\n", myId, E_ptr[diagOffset[current_diagId] + current_locOffset]); 
-            switch (temp_H & 0b00000010){
-                case 0b00000010 :
-                    next_i = current_i;
-                    next_j = current_j - 1;
-                    break;
-                case 0b00000000 :
-                    matrix = 'H';
-                    gapOpen = 1;
-                    next_i = current_i;
-                    next_j = current_j - 1;
-                    break;
-            }
-        } else if (matrix == 'F'){
-            //printf("the matrix is F & ");
-            //printf("the next pointer is: %c\n",F_ptr[diagOffset[current_diagId] + current_locOffset]);
-            //printf("BLOCK #%d, F_ptr[] = %c\n", myId, F_ptr[diagOffset[current_diagId] + current_locOffset]); 
-            switch (temp_H & 0b00000001){
-                case 0b00000001 :
-                    next_i = current_i - 1;
-                    next_j = current_j;
-                    break;
-                case 0b00000000 :
-                    matrix = 'H';
-                    gapOpen = 1;
-                    next_i = current_i - 1;
-                    next_j = current_j;
-                    break;
-            }
-        } else if (matrix == 'H') { 
-            //printf("the matrix is H & ");
-            //printf("the next pointer is: %c\n",H_ptr[diagOffset[current_diagId] + current_locOffset]);
-            //printf("BLOCK #%d, H_ptr[] = %c, current_diagId = %d, current_locOffset = %d, current_i = %d, current_j = %d, maxSize = %d\n", myId, H_ptr[diagOffset[current_diagId] + current_locOffset],current_diagId, current_locOffset, current_i, current_j, maxSize); 
-            switch (temp_H & 0b00001100){
-                case 0b00001100 :
-                    next_i = current_i - 1;
-                    next_j = current_j - 1;
-                    break;
-                case 0b00001000 :
-                    next_i = current_i - 1;
-                    next_j = current_j;
-                    break;
-                case 0b00000100 :
-                    next_i = current_i;
-                    next_j = current_j - 1;
-                    break;
-            }
-        } 
-        //if (myId == 0 && myTId ==0 )
-          //printf("end of the while loop, i= %d, j = %d, next_i = %d, next_j = %d\n", current_i, current_j, next_i, next_j);
-
-        //last_score = current_score;
-        counter++;   
-        
    }
-    //if (myId == 0 && myTId == 0)
-      //printf("outside of the loop");
-    if (shorterSeq[current_j] == longerSeq[current_i]){
-        longCIGAR[counter] = '=';
-    } else {
-        current_i=current_i;
-        current_j=current_j;
-    }
-    //if (myId == 0)
-      //printf("current_i = %d, current_j = %d\n", current_i, current_j);
-    if(lengthSeqA < lengthSeqB){  
-        seqB_align_begin[myId] = current_i;
-        seqA_align_begin[myId] = current_j;
+    if ((current_i == 0) || (current_j == 0)) {longCIGAR[counter] = (shorterSeq[current_j] == longerSeq[current_i]) ? '=' : 'X';}
+   else {longCIGAR[counter-1]='\0'; current_i ++; current_j++; next_i ++; next_j ++;}
+
+    if(lengthSeqA < lengthSeqB){
+        seqB_align_begin[myId] = next_i;
+        seqA_align_begin[myId] = next_j;
     }else{
-        seqA_align_begin[myId] = current_i;
-        seqB_align_begin[myId] = current_j;
+        seqA_align_begin[myId] = next_i;
+        seqB_align_begin[myId] = next_j;
     }
 
     if (myTId == 0){
      gpu_bsw::createCIGAR(longCIGAR, CIGAR, maxCIGAR, seqA, seqB, lengthShorterSeq, lengthLongerSeq, seqBShorter, first_j, current_j, first_i, current_i);
     }
 
+
+  //   int myId = blockIdx.x;
+  //   int myTId = threadIdx.x;
     
-    // *tick_out = tick;
+  //   char*    seqA;
+  //   char*    seqB;
+
+  //   int lengthSeqA;
+  //   int lengthSeqB;
+
+  //   if(myId == 0)
+  //   {
+  //       lengthSeqA = prefix_lengthA[0];
+  //       lengthSeqB = prefix_lengthB[0];
+  //       seqA       = seqA_array;
+  //       seqB       = seqB_array;
+    
+  //   }
+  //   else
+  //   {
+  //       lengthSeqA = prefix_lengthA[myId] - prefix_lengthA[myId - 1];
+  //       lengthSeqB = prefix_lengthB[myId] - prefix_lengthB[myId - 1];
+  //       seqA       = seqA_array + prefix_lengthA[myId - 1];
+  //       seqB       = seqB_array + prefix_lengthB[myId - 1];
+
+  //   }
+
+  //   unsigned short current_diagId;     // = current_i+current_j;
+  //   unsigned short current_locOffset;  // = 0;
+  //   unsigned short last_diagId;
+  //   unsigned short last_locOffset;
+  //   unsigned maxSize = lengthSeqA > lengthSeqB ? lengthSeqA : lengthSeqB;
+  //   bool gapOpen = 0;
+
+  //   const char* longerSeq = lengthSeqA < lengthSeqB ? seqB : seqA; 
+  //   const char* shorterSeq = lengthSeqA < lengthSeqB ? seqA : seqB; 
+  //   unsigned lengthShorterSeq = lengthSeqA < lengthSeqB ? lengthSeqA : lengthSeqB;  
+  //   unsigned lengthLongerSeq = lengthSeqA < lengthSeqB ? lengthSeqB : lengthSeqA;    
+  //   bool seqBShorter = lengthSeqA < lengthSeqB ? false : true;  //need to keep track of whether query or ref is shorter for CIGAR 
+
+  //   current_diagId    = current_i + current_j;
+  //   current_locOffset = 0;
+  //   if(current_diagId < maxSize + 1)
+  //   {
+  //       current_locOffset = current_j;
+  //   }
+  //   else
+  //   {
+  //       unsigned short myOff = current_diagId - maxSize;
+  //       current_locOffset    = current_j - myOff;
+  //   }
+
+  //   //if(myId == 0 && myTId ==0){
+  //       //printf("Beginning Traceback on Block #%d\n", myId);
+  //       //printf("diagID:%d locoffset:%d current_i:%d, current_j:%d, Block #%d\n\n",current_diagId, current_locOffset, current_i, current_j, myId);
+  //       //printf("BLOCK #%d, first H_ptr[] = %c, H_ptr[0] = %c\n", myId, H_ptr[diagOffset[current_diagId] + current_locOffset], H_ptr[0]);                
+        
+  //   //}
+  //   char temp_H;
+  //   temp_H = H_ptr[diagOffset[current_diagId] + current_locOffset];
+  //   short next_i;
+  //   short next_j;
+  //   short last_i = 0;
+  //   short last_j = 0;
+  //   //printf("BLOCK #%d, H_ptr[] = %c\n", myId, H_ptr[diagOffset[current_diagId] + current_locOffset]);  
+  //   switch (temp_H & 0b00001100){
+  //       case 0b00001100 :
+  //           //printf("binary is 0b00001100, decimal is %d\n",H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
+  //           next_i = current_i - 1;
+  //           next_j = current_j - 1;
+  //           break;
+  //       case 0b00001000 :
+  //           //printf("binary is 0b00001000, decimal is %d\n",H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
+  //           next_i = current_i - 1;
+  //           next_j = current_j;
+  //           break;
+  //       case 0b00000100:
+  //           //printf("binary is 0b00000100, decimal is %d\n",H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
+  //           next_i = current_i;
+  //           next_j = current_j - 1;
+  //           break;
+  //       default:
+  //           //printf("default, the char is not \ | or - ********* char is : %c\n", H_ptr[diagOffset[current_diagId] + current_locOffset] & 0b00001100);
+        
+
+  //   }
+
+  //   short first_j = current_j; //recording the first_j, first_i values for use in calculating S
+  //   short first_i = current_i;
+  //   short current_score = 0;
+  //   short last_score = 0;
+  //   char matrix = 'H'; //initialize with H
+
+  //   int counter = 0;
+   
+  //   while(((current_i != next_i) || (current_j != next_j)) && (next_j != 0) && (next_i != 0))
+  //   {   
+  //       temp_H = H_ptr[diagOffset[current_diagId] + current_locOffset];
+  //      //printf("in WHILE loop, cur_i=%d, cur_j=%d\n",current_i, current_j);
+  //      //if(myId==0 && myTId ==0) {
+  //           //for (int i = 0; i <= counter; i++){
+  //             //  printf("%c",longCIGAR[i]);
+  //           //}
+  //           //printf("\n\n");
+  //       //}  
+  //       //if(myId==0 && myTId ==0) {
+  //         //  printf("current_i:%d, current_j:%d, next_i:%d, next_j:%d, %c , %c\n",current_i, current_j, next_i, next_j, shorterSeq[current_j], longerSeq[current_i]);
+  //       //} 
+  //       if (next_i == current_i){
+  //           //printf("BLOCK #%d, E_ptr[] = %c\n", myId, E_ptr[diagOffset[current_diagId] + current_locOffset]); 
+  //           //printf("JUST ENTERED E, E_ptr = %d\n", E_ptr[diagOffset[current_diagId] + current_locOffset]);
+  //           //printf("BLOCK #%d, E_ptr[] = %c, current_diagId = %d, current_locOffset = %d, current_i = %d, current_j = %d, maxSize = %d\n", myId, E_ptr[diagOffset[current_diagId] + current_locOffset],current_diagId, current_locOffset, current_i, current_j, maxSize); 
+  //           if (temp_H & 0b00000010 == 0b00000000) {
+  //               gapOpen = 1;
+  //           }
+  //           if (gapOpen == 0) {
+  //               matrix = 'E';
+  //           }
+  //           //if(myId==0 && myTId ==0){
+  //               //printf("in E - gapOpen = %d, current matrix = %c, E_ptr = %d\n", gapOpen, matrix, E_ptr[diagOffset[current_diagId] + current_locOffset]);
+  //           //}
+  //           // no match, no vertical movement, query has Insertion if que shorter and Deletion if ref is shorter       
+  //           longCIGAR[counter] = seqBShorter ? 'I' : 'D';
+  //           if (counter != 0){
+  //               if( longCIGAR[counter-1] == 'X' && last_i == current_i){
+  //                   longCIGAR[counter-1] = seqBShorter ? 'I' : 'D'; //an aligned mismatch before an insertion or deletion is a part of the insertion or deletion
+  //               }
+  //               //if(myId ==0 && myTId ==0) {
+  //                   //printf(" mismatch before Indel, change X to I or D \n");
+  //               //}
+  //           }     
+
+
+  //           if (shorterSeq[current_j] == longerSeq[current_i] && gapOpen == 1 && next_i == current_i) {
+  //               longCIGAR[counter] = '='; //if match at the end of an indel, = in CIGAR
+  //           }
+  //       } else if (next_j == current_j) {
+  //           //printf("BLOCK #%d, F_ptr[] = %c\n", myId, F_ptr[diagOffset[current_diagId] + current_locOffset]); 
+  //           if (temp_H & 0b00000001 == 0b00000000) {
+  //               gapOpen = 1;
+  //           }
+  //           if (gapOpen == 0) 
+  //               matrix = 'F';
+  //           // no match, no horizontal movement, query has Deletion if que shorter and Deletion if ref is shorter
+          
+  //           //if(myId==0 && myTId ==0){
+  //               //printf("in F - gapOpen = %d, current matrix = %c, F_ptr = %d\n", gapOpen, matrix,F_ptr[diagOffset[current_diagId] + current_locOffset]);
+                
+  //           //}
+  //           longCIGAR[counter] = seqBShorter ? 'D' : 'I';
+  //           if( counter != 0) {
+  //               if( longCIGAR[counter-1] == 'X' && last_j == current_j){
+  //                   longCIGAR[counter-1] = seqBShorter ? 'D' : 'I'; //an aligned mismatch before an insertion or deletion is a part of the insertion or deletion
+            
+  //               //if(myId ==0 && myTId ==0) {
+  //                   //printf(" mismatch before Indel, change X to I or D \n");
+  //               //}
+  //               } 
+  //           }
+  //           if (shorterSeq[current_j] == longerSeq[current_i] && gapOpen == 1 && next_j == current_j -1) {
+  //               longCIGAR[counter] = '=';
+  //           }
+
+  //       } else if ((next_i == current_i - 1) && (next_j == current_j - 1)  ){
+  //               matrix = 'H';
+  //               gapOpen = 0;
+  //               //if(myId==0 && myTId ==0){
+  //                   //printf("in H - gapOpen = %d, current matrix = %c\n", gapOpen, matrix);
+  //               //}
+            
+  //           if (shorterSeq[current_j] == longerSeq[current_i]) {
+  //               longCIGAR[counter] = '=';
+  //               //if (myId ==0 && myTId ==0)
+  //                   //printf(" perfect match = \n");
+  //           } else { 
+  //               longCIGAR[counter] = 'X';
+  //               //if (myId ==0 && myTId ==0)
+  //                   //printf(" aligned - but could be mismatch, or start if Insert or start of Delete \n"); 
+  //           }
+  //       }
+  //       last_i = current_i;
+  //       last_j = current_j;
+
+  //       current_i = next_i;
+  //       current_j = next_j;
+
+  //       last_diagId = current_diagId;
+  //       last_locOffset = current_locOffset;
+
+  //       current_diagId    = current_i + current_j;
+  //       current_locOffset = 0;
+
+  //       if(current_diagId < maxSize + 1)
+  //       {
+  //           current_locOffset = current_j;
+  //       } else {
+  //           unsigned short myOff2 = current_diagId - maxSize;
+  //           current_locOffset     = current_j - myOff2;
+  //       }
+
+  //       if (matrix == 'E'){
+  //           //printf("the matrix is E & ");
+  //           //printf("the next pointer is: %c\n",E_ptr[diagOffset[current_diagId] + current_locOffset]);
+  //           //printf("BLOCK #%d, E_ptr[] = %c\n", myId, E_ptr[diagOffset[current_diagId] + current_locOffset]); 
+  //           switch (temp_H & 0b00000010){
+  //               case 0b00000010 :
+  //                   next_i = current_i;
+  //                   next_j = current_j - 1;
+  //                   break;
+  //               case 0b00000000 :
+  //                   matrix = 'H';
+  //                   gapOpen = 1;
+  //                   next_i = current_i;
+  //                   next_j = current_j - 1;
+  //                   break;
+  //           }
+  //       } else if (matrix == 'F'){
+  //           //printf("the matrix is F & ");
+  //           //printf("the next pointer is: %c\n",F_ptr[diagOffset[current_diagId] + current_locOffset]);
+  //           //printf("BLOCK #%d, F_ptr[] = %c\n", myId, F_ptr[diagOffset[current_diagId] + current_locOffset]); 
+  //           switch (temp_H & 0b00000001){
+  //               case 0b00000001 :
+  //                   next_i = current_i - 1;
+  //                   next_j = current_j;
+  //                   break;
+  //               case 0b00000000 :
+  //                   matrix = 'H';
+  //                   gapOpen = 1;
+  //                   next_i = current_i - 1;
+  //                   next_j = current_j;
+  //                   break;
+  //           }
+  //       } else if (matrix == 'H') { 
+  //           //printf("the matrix is H & ");
+  //           //printf("the next pointer is: %c\n",H_ptr[diagOffset[current_diagId] + current_locOffset]);
+  //           //printf("BLOCK #%d, H_ptr[] = %c, current_diagId = %d, current_locOffset = %d, current_i = %d, current_j = %d, maxSize = %d\n", myId, H_ptr[diagOffset[current_diagId] + current_locOffset],current_diagId, current_locOffset, current_i, current_j, maxSize); 
+  //           switch (temp_H & 0b00001100){
+  //               case 0b00001100 :
+  //                   next_i = current_i - 1;
+  //                   next_j = current_j - 1;
+  //                   break;
+  //               case 0b00001000 :
+  //                   next_i = current_i - 1;
+  //                   next_j = current_j;
+  //                   break;
+  //               case 0b00000100 :
+  //                   next_i = current_i;
+  //                   next_j = current_j - 1;
+  //                   break;
+  //           }
+  //       } 
+  //       //if (myId == 0 && myTId ==0 )
+  //         //printf("end of the while loop, i= %d, j = %d, next_i = %d, next_j = %d\n", current_i, current_j, next_i, next_j);
+
+  //       //last_score = current_score;
+  //       counter++;   
+        
+  //  }
+  //   //if (myId == 0 && myTId == 0)
+  //     //printf("outside of the loop");
+  //   if (shorterSeq[current_j] == longerSeq[current_i]){
+  //       longCIGAR[counter] = '=';
+  //   } else {
+  //       current_i=current_i;
+  //       current_j=current_j;
+  //   }
+  //   //if (myId == 0)
+  //     //printf("current_i = %d, current_j = %d\n", current_i, current_j);
+  //   if(lengthSeqA < lengthSeqB){  
+  //       seqB_align_begin[myId] = current_i;
+  //       seqA_align_begin[myId] = current_j;
+  //   }else{
+  //       seqA_align_begin[myId] = current_i;
+  //       seqB_align_begin[myId] = current_j;
+  //   }
+
+  //   if (myTId == 0){
+  //    gpu_bsw::createCIGAR(longCIGAR, CIGAR, maxCIGAR, seqA, seqB, lengthShorterSeq, lengthLongerSeq, seqBShorter, first_j, current_j, first_i, current_i);
+  //   }
+
+    
+  //   // *tick_out = tick;
 }
 
 __global__ void
@@ -1368,9 +1535,6 @@ gpu_bsw::sequence_dna_kernel_traceback(char* seqA_array, char* seqB_array, unsig
     short laneId = threadIdx.x%32;
     short warpId = threadIdx.x/32;
 
-    //if(thread_Id == 0) {
-      //printf("LLCOMMENT: block_Id = %d, Made it to the actual traceback kernel\n",block_Id);
-    //}
     unsigned lengthSeqA;
     unsigned lengthSeqB;
     // local pointers
