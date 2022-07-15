@@ -64,8 +64,8 @@ static upcxx::future<> gpu_align_block(shared_ptr<AlignBlockData> aln_block_data
     
     unsigned maxContigSize = aln_block_data->max_clen ;
     unsigned maxReadSize = aln_block_data->max_rlen ;
-    unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize;
-   
+    unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize; //3* size to eliminate overflow FIXME: Truncate CIGARs that are over maxCIGAR
+    printf("GPU align block: maxContigSize passed in = %d, maxReadSize passed in = %d\n", maxContigSize, maxReadSize);
     if (report_cigar){
       
       aln_kernel_timer.start();

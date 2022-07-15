@@ -296,6 +296,20 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
   using timepoint_t = std::chrono::time_point<std::chrono::high_resolution_clock>;
   timepoint_t t = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed;
+
+  //calculate if the batch will fit into global memory
+  int max_clen = 3*max_rlen; //FIXME LL: Hack until I can pass in max_clen
+  unsigned maxCIGAR = (max_clen > max_rlen ) ? 3* max_clen : 3* max_rlen;
+  int maxMatrixSize = max_rlen * max_clen; //FIXME LL: Hack until I can pass in max_clen
+  size_t gpu_mem_avail = gpu_utils::get_gpu_avail_mem();
+  size_t tot_mem_req_per_aln = max_rlen + (3 * max_rlen) + 2 * sizeof(int) + 6 * sizeof(short) +  (1.25*max_rlen * max_clen) + 2 * (maxCIGAR);
+  float factor = 0.75*1/NSTREAMS;
+  unsigned max_alns_gpu = ceil(((double)gpu_mem_avail*factor)/tot_mem_req_per_aln);
+  unsigned max_alns_sugg = KLIGN_GPU_BLOCK_SIZE;
+  //printf("LLCOMMENT: max_rlen = %d, maxCIGAR = %d, batch size = %d, max_alns_gpu = %d\n",max_rlen, maxCIGAR, max_alns_sugg, max_alns_gpu);
+  max_alns_gpu = max_alns_gpu > max_alns_sugg ? max_alns_sugg : max_alns_gpu; 
+  //int its = (max_per_device>max_alns_gpu)?(ceil((double)max_per_device/max_alns_gpu)):1;
+  //printf("LLCOMMENT:new max_alns_gpu = %d\n", max_alns_gpu);
   driver_state = new DriverState();
   driver_state->rank_me = upcxx_rank_me;
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " new=" << elapsed.count();
@@ -316,6 +330,7 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " mallocHost=" << elapsed.count();
 
   gpu_utils::set_gpu_device(driver_state->rank_me);
+  
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " set_device=" << elapsed.count();
 
   for (int stm = 0; stm < NSTREAMS; stm++) {
@@ -323,6 +338,7 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
   }
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " streamcreate=" << elapsed.count();
 
+   
   cudaErrchk(cudaMallocHost(&driver_state->offsetA_h, sizeof(int) * KLIGN_GPU_BLOCK_SIZE));
   cudaErrchk(cudaMallocHost(&driver_state->offsetB_h, sizeof(int) * KLIGN_GPU_BLOCK_SIZE));
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " mallocHost2=" << elapsed.count();
@@ -339,8 +355,6 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
   driver_state->gpu_data = new gpu_alignments(KLIGN_GPU_BLOCK_SIZE);  // gpu mallocs
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " final=" << elapsed.count();
   
-  int maxCIGAR = 3*max_rlen; //FIXME LL: Hack until I can pass in max_clen
-  int maxMatrixSize = max_rlen * 3 * max_rlen; //FIXME LL: Hack until I can pass in max_clen
   
   if(compute_cigar) {
     driver_state->gpu_data_traceback = new gpu_alignments_traceback(KLIGN_GPU_BLOCK_SIZE, maxCIGAR, maxMatrixSize);  // gpu mallocs
@@ -525,9 +539,9 @@ void adept_sw::GPUDriver::run_kernel_backwards(std::vector<std::string>& reads, 
 void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, std::vector<std::string>& contigs,
                                               unsigned maxReadSize, unsigned maxContigSize) {
   gpu_utils::set_gpu_device(driver_state->rank_me);
-
+  printf("Run Kernel Traceback: maxContigSize passed in = %d, maxReadSize passed in = %d\n", maxContigSize, maxReadSize);
   unsigned totalAlignments = contigs.size();  // assuming that read and contig vectors are same length
-  unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize;
+  unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize; //check if this is now necessary
   unsigned const maxMatrixSize = (maxContigSize + 1 ) * (maxReadSize + 1);
   // memory on CPU for copying the results
   short* alAbeg = alignments.ref_begin;
@@ -555,6 +569,11 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
   driver_state->half_length_A = 0;
   driver_state->half_length_B = 0;
 
+  //can calculate the longest contig right here and memory allocation should happen after this
+  //int largestA=0;
+  //if(sequencesA[i].size() > largestA){
+  //  largestA = seq.size();
+  //}
   for (int i = 0; i < (int)sequencesA.size(); i++) {
     running_sum += sequencesA[i].size();
     driver_state->offsetA_h[i] = running_sum;  // sequencesA[i].size();
@@ -564,7 +583,7 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
     }
   }
   unsigned totalLengthA = driver_state->half_length_A + driver_state->offsetA_h[sequencesA.size() - 1];
-
+  //printf("Run Kernel Traceback: maxContigSize calculated = %d, maxReadSize passed in = %d\n", largestA, largestB);
   running_sum = 0;
   for (int i = 0; i < (int)sequencesB.size(); i++) {
     running_sum += sequencesB[i].size();

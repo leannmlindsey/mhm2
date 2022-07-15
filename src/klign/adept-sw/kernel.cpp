@@ -1220,7 +1220,10 @@ gpu_bsw::traceBack(short current_i, short current_j, char* seqA_array, char* seq
             current_locOffset     = current_j - myOff2;
         }
         counter++;
-        if(counter>maxCIGAR) printf("CIGAR is longer than max value\n");
+        if(counter == maxCIGAR-1) {
+          printf("CIGAR is longer than max value, truncating CIGAR string.  Truncated CIGAR strings are indicated with a T-\n");
+          longCIGAR[counter] = '\0';
+        }
 
    }
     if ((current_i == 0) || (current_j == 0)) {longCIGAR[counter] = (shorterSeq[current_j] == longerSeq[current_i]) ? '=' : 'X';}
