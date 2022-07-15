@@ -343,7 +343,7 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
   cudaErrchk(cudaMallocHost(&driver_state->offsetB_h, sizeof(int) * KLIGN_GPU_BLOCK_SIZE));
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " mallocHost2=" << elapsed.count();
 
-  // FIXME: hack for max contig and read size -> multiplying max_rlen by 2 for contigs
+  // FIXME:  for max contig and read size -> multiplying max_rlen by 2 for contigs
   cudaErrchk(cudaMalloc(&driver_state->strA_d, 2 * max_rlen * KLIGN_GPU_BLOCK_SIZE * sizeof(char)));
   cudaErrchk(cudaMalloc(&driver_state->strB_d, max_rlen * KLIGN_GPU_BLOCK_SIZE * sizeof(char)));
   // elapsed =  std::chrono::high_resolution_clock::now() - t; os << " mallocs=" << elapsed.count();
@@ -539,7 +539,7 @@ void adept_sw::GPUDriver::run_kernel_backwards(std::vector<std::string>& reads, 
 void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, std::vector<std::string>& contigs,
                                               unsigned maxReadSize, unsigned maxContigSize) {
   gpu_utils::set_gpu_device(driver_state->rank_me);
-  printf("Run Kernel Traceback: maxContigSize passed in = %d, maxReadSize passed in = %d\n", maxContigSize, maxReadSize);
+  //printf("Run Kernel Traceback: maxContigSize passed in = %d, maxReadSize passed in = %d\n", maxContigSize, maxReadSize);
   unsigned totalAlignments = contigs.size();  // assuming that read and contig vectors are same length
   unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize; //check if this is now necessary
   unsigned const maxMatrixSize = (maxContigSize + 1 ) * (maxReadSize + 1);
@@ -570,7 +570,8 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
   driver_state->half_length_B = 0;
 
   //can calculate the longest contig right here and memory allocation should happen after this
-  //int largestA=0;
+  long unsigned largestA=0;
+  long unsigned largestB=0;
   //if(sequencesA[i].size() > largestA){
   //  largestA = seq.size();
   //}
@@ -581,9 +582,13 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
       driver_state->half_length_A = running_sum;
       running_sum = 0;
     }
+      //printf("size = %d\n",sequencesA[i].size());
+    if(sequencesA[i].size() > largestA){
+      largestA = sequencesA[i].size();
+    }
   }
   unsigned totalLengthA = driver_state->half_length_A + driver_state->offsetA_h[sequencesA.size() - 1];
-  //printf("Run Kernel Traceback: maxContigSize calculated = %d, maxReadSize passed in = %d\n", largestA, largestB);
+ 
   running_sum = 0;
   for (int i = 0; i < (int)sequencesB.size(); i++) {
     running_sum += sequencesB[i].size();
@@ -592,7 +597,12 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
       driver_state->half_length_B = running_sum;
       running_sum = 0;
     }
+    //printf("size = %d\n",sequencesB[i].size());
+    if(sequencesB[i].size() > largestB){
+      largestB = sequencesB[i].size();
+    }
   }
+  //printf("Run Kernel Traceback: maxContigSize calculated = %lu, maxReadSize passed in = %lu\n", largestA, largestB);
   unsigned totalLengthB = driver_state->half_length_B + driver_state->offsetB_h[sequencesB.size() - 1];
 
   unsigned offsetSumA = 0;
