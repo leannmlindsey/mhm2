@@ -53,3 +53,4 @@ IntermittentTimer compute_alns_timer(string("klign:Compute alns"));
 IntermittentTimer get_ctgs_timer(string("klign:Get ctgs with kmer"));
 IntermittentTimer aln_kernel_timer(string("klign:GPU_BSW"));
 
+

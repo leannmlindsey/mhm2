@@ -65,7 +65,7 @@ static upcxx::future<> gpu_align_block(shared_ptr<AlignBlockData> aln_block_data
     unsigned maxContigSize = aln_block_data->max_clen ;
     unsigned maxReadSize = aln_block_data->max_rlen ;
     unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize; //3* size to eliminate overflow FIXME: Truncate CIGARs that are over maxCIGAR
-    printf("GPU align block: maxContigSize passed in = %d, maxReadSize passed in = %d\n", maxContigSize, maxReadSize);
+    //printf("GPU align block: maxContigSize passed in = %d, maxReadSize passed in = %d\n", maxContigSize, maxReadSize);
     if (report_cigar){
       
       aln_kernel_timer.start();
@@ -96,17 +96,14 @@ static upcxx::future<> gpu_align_block(shared_ptr<AlignBlockData> aln_block_data
       aln.set(aln_results.ref_begin[i], aln_results.ref_end[i], aln_results.query_begin[i], aln_results.query_end[i],
               aln_results.top_scores[i], 0, 0, aln_block_data->read_group_id);
       if (report_cigar) {
-        //SWARN("Trying to produce SAM outputs with GPU alignments, which is not supported");
-        std::string s0 = "LLCIGAR: ";
-	int k = i*maxCIGAR;
-	while (aln_results.cigar[k] != NULL) {
-          s0 += aln_results.cigar[k];
+        std::string cig = "LLCIGAR: ";
+	      int k = i*maxCIGAR;
+	      while (aln_results.cigar[k] != NULL) {
+          cig += aln_results.cigar[k];
           k++;
         }
-        aln.set_sam_string(aln_block_data->read_seqs[i],s0);
-
-        s0 = "LLCIGAR: ";
-	//aln.set_sam_string("*", "*");  // FIXME until there is a valid:ssw_aln.cigar_string);
+        aln.set_sam_string(aln_block_data->read_seqs[i],cig);
+        cig = "LLCIGAR: ";
       }
       aln_block_data->alns->add_aln(aln);
     }
@@ -172,7 +169,7 @@ void kernel_align_block(CPUAligner &cpu_aligner, vector<Aln> &kernel_alns, vecto
     shared_ptr<AlignBlockData> aln_block_data =
         make_shared<AlignBlockData>(kernel_alns, ctg_seqs, read_seqs, max_clen, max_rlen, read_group_id, cpu_aligner.aln_scoring);
     assert(kernel_alns.empty());
-    // for now, the GPU alignment doesn't support cigars
+  
     if (gpu_utils::gpus_present()) {
       SLOG_VERBOSE("GPU align block\n");
       active_kernel_fut = gpu_align_block(aln_block_data, alns, cpu_aligner.ssw_filter.report_cigar, aln_kernel_timer);

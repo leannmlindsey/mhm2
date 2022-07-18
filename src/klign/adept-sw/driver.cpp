@@ -300,7 +300,8 @@ adept_sw::GPUDriver::GPUDriver(int upcxx_rank_me, int upcxx_rank_n, short match_
   //calculate if the batch will fit into global memory
   int max_clen = 3*max_rlen; //FIXME LL: Hack until I can pass in max_clen
   unsigned maxCIGAR = (max_clen > max_rlen ) ? 3* max_clen : 3* max_rlen;
-  int maxMatrixSize = max_rlen * max_clen; //FIXME LL: Hack until I can pass in max_clen
+  
+  int maxMatrixSize = max_rlen * max_clen; 
   size_t gpu_mem_avail = gpu_utils::get_gpu_avail_mem();
   size_t tot_mem_req_per_aln = max_rlen + (3 * max_rlen) + 2 * sizeof(int) + 6 * sizeof(short) +  (1.25*max_rlen * max_clen) + 2 * (maxCIGAR);
   float factor = 0.75*1/NSTREAMS;
@@ -560,6 +561,7 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
   endAVec = contigs.begin() + totalAlignments;
   beginBVec = reads.begin();
   endBVec = reads.begin() + totalAlignments;
+
 
   std::vector<std::string> sequencesA(beginAVec, endAVec);
   std::vector<std::string> sequencesB(beginBVec, endBVec);
