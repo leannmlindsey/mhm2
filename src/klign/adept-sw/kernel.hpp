@@ -79,10 +79,7 @@ __device__ void createCIGAR(char* longCIGAR, char* CIGAR, int maxCIGAR,
 __device__ void traceBack(short current_i, short current_j, char* seqA_array, char* seqB_array, unsigned* prefix_lengthA,
                     unsigned* prefix_lengthB, short* seqA_align_begin, short* seqA_align_end,
                     short* seqB_align_begin, short* seqB_align_end, unsigned const maxMatrixSize, int maxCIGAR,
-                    char* longCIGAR, char* CIGAR, char* H_ptr, unsigned short* diagOffset);
-__device__ void traceBack(short current_i, short current_j, short* seqA_align_begin, short* seqB_align_begin, const char* seqA,
-                          const char* seqB, short* I_i, short* I_j, unsigned lengthSeqB, unsigned lengthSeqA,
-                          unsigned int* diagOffset);
+                    char* longCIGAR, char* CIGAR, char* H_ptr, uint32_t* diagOffset);
 
 __global__ void sequence_dna_kernel(char* seqA_array, char* seqB_array, unsigned* prefix_lengthA, unsigned* prefix_lengthB,
                                     short* seqA_align_begin, short* seqA_align_end, short* seqB_align_begin, short* seqB_align_end,

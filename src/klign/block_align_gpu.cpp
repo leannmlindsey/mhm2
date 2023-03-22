@@ -96,14 +96,16 @@ static upcxx::future<> gpu_align_block(shared_ptr<AlignBlockData> aln_block_data
       aln.set(aln_results.ref_begin[i], aln_results.ref_end[i], aln_results.query_begin[i], aln_results.query_end[i],
               aln_results.top_scores[i], 0, 0, aln_block_data->read_group_id);
       if (report_cigar) {
-        std::string cig = "LLCIGAR: ";
+        //std::string cig = "GPU_CIGAR: "; //use this to calculate which percentage of traceback is being done on GPU
+        std::string cig = "";
 	      int k = i*maxCIGAR;
 	      while (aln_results.cigar[k] != NULL) {
           cig += aln_results.cigar[k];
           k++;
         }
         aln.set_sam_string(aln_block_data->read_seqs[i],cig);
-        cig = "LLCIGAR: ";
+        //cig = "GPU_CIGAR: "; //use this to calculate which percentage of traceback is being done on GPU
+        cig = "";
       }
       aln_block_data->alns->add_aln(aln);
     }

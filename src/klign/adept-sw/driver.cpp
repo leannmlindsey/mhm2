@@ -540,7 +540,7 @@ void adept_sw::GPUDriver::run_kernel_backwards(std::vector<std::string>& reads, 
 void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, std::vector<std::string>& contigs,
                                               unsigned maxReadSize, unsigned maxContigSize) {
   gpu_utils::set_gpu_device(driver_state->rank_me);
-  //printf("Run Kernel Traceback: maxContigSize passed in = %d, maxReadSize passed in = %d\n", maxContigSize, maxReadSize);
+ 
   unsigned totalAlignments = contigs.size();  // assuming that read and contig vectors are same length
   unsigned maxCIGAR = (maxContigSize > maxReadSize ) ? 3* maxContigSize : 3* maxReadSize; //check if this is now necessary
   unsigned const maxMatrixSize = (maxContigSize + 1 ) * (maxReadSize + 1);
@@ -571,20 +571,17 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
   driver_state->half_length_A = 0;
   driver_state->half_length_B = 0;
 
-  //can calculate the longest contig right here and memory allocation should happen after this
   long unsigned largestA=0;
   long unsigned largestB=0;
-  //if(sequencesA[i].size() > largestA){
-  //  largestA = seq.size();
-  //}
+ 
   for (int i = 0; i < (int)sequencesA.size(); i++) {
     running_sum += sequencesA[i].size();
-    driver_state->offsetA_h[i] = running_sum;  // sequencesA[i].size();
+    driver_state->offsetA_h[i] = running_sum;  
     if (i == sequences_per_stream - 1) {
       driver_state->half_length_A = running_sum;
       running_sum = 0;
     }
-      //printf("size = %d\n",sequencesA[i].size());
+     
     if(sequencesA[i].size() > largestA){
       largestA = sequencesA[i].size();
     }
@@ -594,17 +591,17 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
   running_sum = 0;
   for (int i = 0; i < (int)sequencesB.size(); i++) {
     running_sum += sequencesB[i].size();
-    driver_state->offsetB_h[i] = running_sum;  // sequencesB[i].size();
+    driver_state->offsetB_h[i] = running_sum; 
     if (i == sequences_per_stream - 1) {
       driver_state->half_length_B = running_sum;
       running_sum = 0;
     }
-    //printf("size = %d\n",sequencesB[i].size());
+   
     if(sequencesB[i].size() > largestB){
       largestB = sequencesB[i].size();
     }
   }
-  //printf("Run Kernel Traceback: maxContigSize calculated = %lu, maxReadSize passed in = %lu\n", largestA, largestB);
+  
   unsigned totalLengthB = driver_state->half_length_B + driver_state->offsetB_h[sequencesB.size() - 1];
 
   unsigned offsetSumA = 0;
@@ -626,10 +623,11 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
                         driver_state->half_length_B, totalLengthA, totalLengthB, sequences_per_stream, sequences_stream_leftover,
                         driver_state->streams_cuda, driver_state->max_rlen);
   unsigned minSize = (maxReadSize < maxContigSize) ? maxReadSize : maxContigSize;
-  unsigned totShmem = 3 * (minSize + 1) * sizeof(short);
+  unsigned maxSize = (maxReadSize > maxContigSize) ? maxReadSize : maxContigSize;
+  unsigned totShmem = 6 * (minSize + 1) * sizeof(short) + 6 * minSize + (minSize + 1) + maxSize;
   unsigned alignmentPad = 4 + (4 - totShmem % 4);
   size_t   ShmemBytes = totShmem + alignmentPad + sizeof(int) * (maxContigSize + maxReadSize + 2 );
-  //printf("ShmemBytes = %d, Total Avail = %d, Remaining = %d \n", ShmemBytes, 48*1024, 48*1024-ShmemBytes);
+  
   if (ShmemBytes > 48000)
     cudaErrchk(cudaFuncSetAttribute(gpu_bsw::sequence_dna_kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, ShmemBytes));
 
@@ -669,17 +667,5 @@ void adept_sw::GPUDriver::run_kernel_traceback(std::vector<std::string>& reads, 
 
   cudaDeviceSynchronize();
   cudaErrchk(cudaEventRecord(driver_state->event));
-  // int count = 0;
-  // for (int q= 1; q < totalAlignments; q++){
-  //    if (alignments.cigar[q*maxCIGAR-1] != NULL) {count = count + 1;}
-  // }
-  // printf("Total Alignments = %d, completely full CIGARS = %d\n",totalAlignments, count);
-
-  // int count = 0;
-  // for (int q= 0; q < totalAlignments; q++){
-  //   if (alignments.cigar[q*maxCIGAR] == NULL) {count = count + 1;}
-  //   //printf("alignments.cigar = %c\n",alignments.cigar[q*maxCIGAR]);
-  // }
-  // printf("Total Alignments = %d, empty CIGARS = %d, maxCIGAR = %d\n",totalAlignments, count, maxCIGAR);
 
 }
